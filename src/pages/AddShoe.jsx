@@ -1,0 +1,15 @@
+import { useState } from 'react';
+import { ArrowLeft, Check, ImagePlus } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useStore } from '../context/StoreContext';
+
+const AddShoe = () => {
+  const { addShoe } = useStore();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ name: '', category: 'Running', price: '', stock: '', image: '' });
+  const [error, setError] = useState('');
+  const update = event => setForm({ ...form, [event.target.name]: event.target.value });
+  const submit = event => { event.preventDefault(); if (!form.name || !form.price || !form.stock) { setError('Complete the required fields before publishing.'); return; } addShoe({ ...form, brand: 'Finish Line', price: Number(form.price), stock: Number(form.stock), image: form.image || '/sneaker_running_red.jpg', sizes: [8, 9, 10, 11, 12], colors: ['Black'], description: 'A new Finishline release ready for the collection.' }); navigate('/'); };
+  return <main className="form-page animate-fade-in"><Link to="/" className="back-link"><ArrowLeft size={16} /> Back to dashboard</Link><div className="form-intro"><p className="eyebrow">INVENTORY / NEW ENTRY</p><h1>Add a <em>new pair.</em></h1><p className="muted">Create a product card for the Finishline collection. Everything stays in local frontend state.</p></div><form className="shoe-form" onSubmit={submit}><div className="form-section"><div className="form-section-heading"><span>01</span><div><h2>Product details</h2><p>Name the pair and place it in the right edit.</p></div></div><label>Product name<input name="name" value={form.name} onChange={update} placeholder="e.g. Motion 01 Runner" /></label><div className="form-two"><label>Category<select name="category" value={form.category} onChange={update}><option>Running</option><option>Basketball</option><option>Casual</option><option>Lifestyle</option></select></label><label>Price (USD)<input name="price" type="number" min="0" step="0.01" value={form.price} onChange={update} placeholder="145.00" /></label></div><label>Initial stock<input name="stock" type="number" min="0" value={form.stock} onChange={update} placeholder="24" /></label></div><div className="form-section"><div className="form-section-heading"><span>02</span><div><h2>Product image</h2><p>Paste an image URL now, or leave it for the placeholder.</p></div></div><label>Image URL <span className="optional">optional</span><input name="image" value={form.image} onChange={update} placeholder="https://..." /></label><div className="image-placeholder"><ImagePlus size={22} /><span>Custom product photography<br /><small>Recommended: square image, minimum 800px</small></span></div></div>{error && <p className="form-error">{error}</p>}<button className="btn btn-primary" type="submit"><Check size={17} /> Publish shoe</button></form></main>;
+};
+export default AddShoe;
