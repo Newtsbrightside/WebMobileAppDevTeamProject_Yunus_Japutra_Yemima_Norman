@@ -577,7 +577,30 @@ const TopUp = ({ onClose, onTopUp }) => {
    ========================================================== */
 const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrderStatus, onChat }) => {
   const [tab, setTab] = useState('inventory');
-  const lowStock = inventory.filter(shoe => shoe.stock <= 12).length;
+  const lowStockShoes = inventory.filter(shoe => shoe.stock <= 12);
+  const lowStock = lowStockShoes.length;
+  const validOrders = orders.filter(order => order.status !== 'Cancelled');
+  const totalRevenue = validOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const pendingOrders = orders.filter(order => order.status === 'Pending').length;
+  const inventoryValue = inventory.reduce((sum, shoe) => sum + shoe.stock * Number(shoe.price || 0), 0);
+  const currentMonth = new Date();
+  const monthlySales = Array.from({ length: 6 }, (_, index) => {
+    const monthDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 5 + index, 1);
+    const total = validOrders.reduce((sum, order) => {
+      const orderDate = new Date(order.date);
+      return orderDate.getFullYear() === monthDate.getFullYear() &&
+        orderDate.getMonth() === monthDate.getMonth()
+        ? sum + Number(order.total || 0)
+        : sum;
+    }, 0);
+
+    return {
+      label: monthDate.toLocaleDateString('en-US', { month: 'short' }),
+      total
+    };
+  });
+  const maxMonthlySales = Math.max(...monthlySales.map(month => month.total));
+  const recentOrders = [...orders].reverse().slice(0, 5);
 
   return (
     <main className="page-shell animate-fade-in">
@@ -607,14 +630,116 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrde
           <small>Editable in real time</small>
         </div>
         <div className="stat-card accent">
-          <span>Low Stock Alert</span>
-          <strong>{lowStock}</strong>
-          <small>12 pairs or fewer</small>
+          <span>Total Revenue</span>
+          <strong>{money(totalRevenue)}</strong>
+          <small>Excludes cancelled orders</small>
         </div>
         <div className="stat-card">
           <span>Total Orders</span>
           <strong>{orders.length}</strong>
           <small>Track fulfillment status</small>
+        </div>
+        <div className="stat-card">
+          <span>Pending Orders</span>
+          <strong>{pendingOrders}</strong>
+          <small>Awaiting fulfillment</small>
+        </div>
+        <div className="stat-card accent">
+          <span>Low Stock Alert</span>
+          <strong>{lowStock}</strong>
+          <small>12 pairs or fewer</small>
+        </div>
+        <div className="stat-card">
+          <span>Inventory Value</span>
+          <strong>{money(inventoryValue)}</strong>
+          <small>Based on current stock</small>
+        </div>
+      </section>
+
+      <section className="analytics-grid" aria-label="Store analytics">
+        <div className="analytics-panel">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">ORDER ACTIVITY</p>
+              <h2>Monthly Sales</h2>
+            </div>
+            <span className="analytics-unit">USD</span>
+          </div>
+          <div className="sales-chart" role="img" aria-label="Sales totals for the last six months">
+            {monthlySales.map(month => {
+              const barHeight = month.total && maxMonthlySales
+                ? Math.max(8, (month.total / maxMonthlySales) * 100)
+                : 0;
+
+              return (
+                <div className="sales-bar-column" key={month.label}>
+                  <div className="sales-bar-track">
+                    <div
+                      className="sales-bar"
+                      style={{ height: `${barHeight}%` }}
+                      title={`${month.label}: ${money(month.total)}`}
+                    />
+                  </div>
+                  <span>{month.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="analytics-panel">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">STOCK CHECK</p>
+              <h2>Low Stock Alerts</h2>
+            </div>
+            <span className="analytics-count">{lowStock}</span>
+          </div>
+          {lowStockShoes.length === 0 ? (
+            <p className="muted">All styles are well stocked.</p>
+          ) : (
+            <ul className="analytics-stock-list">
+              {lowStockShoes.slice(0, 5).map(shoe => (
+                <li key={shoe.id}>
+                  <span>{shoe.name}</span>
+                  <strong className={shoe.stock === 0 ? 'stock-empty' : 'stock-low'}>
+                    {shoe.stock === 0 ? 'Out of stock' : `${shoe.stock} pairs left`}
+                  </strong>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="analytics-panel analytics-orders">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">LATEST ACTIVITY</p>
+              <h2>Recent Orders</h2>
+            </div>
+          </div>
+          {recentOrders.length === 0 ? (
+            <p className="muted">No orders recorded yet.</p>
+          ) : (
+            <div className="analytics-orders-table">
+              <div className="analytics-orders-head">
+                <span>Order ID</span>
+                <span>Customer</span>
+                <span>Total</span>
+                <span>Status</span>
+              </div>
+              {recentOrders.map(order => (
+                <div className="analytics-order-row" key={order.id}>
+                  <strong>{order.id}</strong>
+                  <span>{order.customer?.name || 'Guest'}</span>
+                  <span>{money(order.total)}</span>
+                  <span className={`analytics-status status-${order.status.toLowerCase()}`}>
+                    {order.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -770,6 +895,9 @@ const Client = ({
   }, []);
 
   const categories = ['All', ...new Set(inventory.map(shoe => shoe.category))];
+  const availableCount = inventory.filter(shoe => shoe.stock > 12).length;
+  const limitedCount = inventory.filter(shoe => shoe.stock > 0 && shoe.stock <= 12).length;
+  const emptyCount = inventory.filter(shoe => shoe.stock === 0).length;
   const products = inventory.filter(shoe =>
     (category === 'All' || shoe.category === category) &&
     shoe.name.toLowerCase().includes(query.toLowerCase())
@@ -860,6 +988,21 @@ const Client = ({
           </button>
         </div>
       </header>
+
+      <section className="stock-overview" aria-label="Stock overview">
+        <div>
+          <span>Available Styles</span>
+          <strong>{availableCount}</strong>
+        </div>
+        <div>
+          <span>Limited Stock</span>
+          <strong>{limitedCount}</strong>
+        </div>
+        <div>
+          <span>Out of Stock</span>
+          <strong>{emptyCount}</strong>
+        </div>
+      </section>
 
       {/* Search & Categories Bar */}
       <div className="search-filter">
