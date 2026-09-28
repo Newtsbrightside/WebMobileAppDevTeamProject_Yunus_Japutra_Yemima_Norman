@@ -333,13 +333,9 @@ const CartDrawer = ({ cart, removeFromCart, onClose, onCheckout }) => {
                 <span>Subtotal</span>
                 <strong>{money(subtotal)}</strong>
               </div>
-              <div className="cart-summary-line">
-                <span>Shipping</span>
-                <span>{neededForFree === 0 ? 'FREE' : money(12)}</span>
-              </div>
               <div className="cart-summary-line total-line">
                 <span>Total</span>
-                <strong>{money(subtotal + (neededForFree === 0 ? 0 : 12))}</strong>
+                <strong>{money(subtotal)}</strong>
               </div>
             </div>
 
