@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Plus, Trash2, Package, Search, Filter } from 'lucide-react';
+import { Plus, Trash2, Package, Filter } from 'lucide-react';
 
 const AdminDashboard = () => {
   const { inventory, addShoe, updateShoe, deleteShoe, orders, updateOrderStatus } = useStore();

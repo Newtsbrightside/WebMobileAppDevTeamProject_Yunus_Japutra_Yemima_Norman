@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { ShoppingCart, Heart, Share2, Ruler, CheckCircle2, MapPin, Search, Copy, Check } from 'lucide-react';
+import { ShoppingCart, Heart, Share2, Ruler, CheckCircle2, MapPin, Search, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { storeLocations } from '../data';
 
@@ -47,7 +47,7 @@ const ClientDashboard = () => {
       gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
       oscillator.start(audioCtx.currentTime);
       oscillator.stop(audioCtx.currentTime + 0.5);
-    } catch(e) {
+    } catch {
       console.log("Audio API not supported");
     }
   };
@@ -306,7 +306,7 @@ const ClientDashboard = () => {
                 <div style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: '2rem' }}>Your bag is empty.</div>
               ) : (
                 <div className="grid" style={{ gap: '1rem' }}>
-                  {cart.map((item, idx) => (
+                  {cart.map((item) => (
                     <div key={item.cartId} style={{ display: 'flex', gap: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
                       <img src={`/${item.image}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px' }} />
                       <div style={{ flex: 1 }}>
