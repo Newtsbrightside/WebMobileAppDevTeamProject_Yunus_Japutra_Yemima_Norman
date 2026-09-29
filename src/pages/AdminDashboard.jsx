@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
+import ProductImage from '../components/ProductImage';
 import { Plus, Trash2, Package, Filter } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -123,7 +124,7 @@ const AdminDashboard = () => {
                 ) : sortedInventory.map(shoe => (
                   <tr key={shoe.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                      <img src={`/${shoe.image}`} alt={shoe.name} style={{ width: '50px', height: '50px', objectFit: 'cover', borderRadius: '8px' }} />
+                      <ProductImage src={shoe.image} alt={shoe.name} style={{ width: '50px', height: '50px', objectFit: 'cover', borderRadius: '8px' }} />
                       <div>
                         <div style={{ fontWeight: '500' }}>{shoe.name}</div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>ID: {shoe.id}</div>

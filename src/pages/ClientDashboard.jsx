@@ -3,6 +3,7 @@ import { useStore } from '../context/StoreContext';
 import { ShoppingCart, Heart, Share2, Ruler, CheckCircle2, MapPin, Search, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { storeLocations } from '../data';
+import ProductImage from '../components/ProductImage';
 
 const ClientDashboard = () => {
   const { inventory, addToCart, cart, checkout, wishlist, toggleWishlist } = useStore();
@@ -142,7 +143,7 @@ const ClientDashboard = () => {
             <div key={shoe.id} className="card" style={{ padding: 0, overflow: 'hidden', cursor: 'pointer', position: 'relative' }}>
               <div style={{ height: '250px', overflow: 'hidden', position: 'relative' }} onClick={() => setSelectedShoe(shoe)}>
                 <img 
-                  src={`/${shoe.image}`} 
+                  src={shoe.image}
                   alt={shoe.name} 
                   style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.5s', filter: shoe.stock === 0 ? 'grayscale(100%) opacity(0.7)' : 'none' }} 
                   onMouseOver={e => { if (shoe.stock > 0) e.currentTarget.style.transform = 'scale(1.05)' }}
@@ -195,11 +196,11 @@ const ClientDashboard = () => {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', backdropFilter: 'blur(5px)' }}>
           <div className="card animate-fade-in" style={{ maxWidth: '900px', width: '100%', display: 'flex', padding: 0, overflow: 'hidden', maxHeight: '90vh' }}>
             <div style={{ flex: 1, backgroundColor: '#000', position: 'relative' }}>
-              <img src={`/${selectedShoe.image}`} alt={selectedShoe.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <ProductImage src={selectedShoe.image} alt={selectedShoe.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               {/* Dummy thumbnails to simulate gallery */}
               <div style={{ position: 'absolute', bottom: '1rem', left: '1rem', right: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                <div style={{ width: '50px', height: '50px', border: '2px solid white', borderRadius: '4px', overflow: 'hidden' }}><img src={`/${selectedShoe.image}`} style={{width: '100%', height: '100%', objectFit: 'cover'}}/></div>
-                <div style={{ width: '50px', height: '50px', border: '2px solid transparent', borderRadius: '4px', overflow: 'hidden', opacity: 0.7 }}><img src={`/${selectedShoe.image}`} style={{width: '100%', height: '100%', objectFit: 'cover'}}/></div>
+                <div style={{ width: '50px', height: '50px', border: '2px solid white', borderRadius: '4px', overflow: 'hidden' }}><ProductImage src={selectedShoe.image} alt={`${selectedShoe.name} thumbnail`} style={{width: '100%', height: '100%', objectFit: 'cover'}}/></div>
+                <div style={{ width: '50px', height: '50px', border: '2px solid transparent', borderRadius: '4px', overflow: 'hidden', opacity: 0.7 }}><ProductImage src={selectedShoe.image} alt={`${selectedShoe.name} thumbnail`} style={{width: '100%', height: '100%', objectFit: 'cover'}}/></div>
               </div>
             </div>
             
@@ -308,7 +309,7 @@ const ClientDashboard = () => {
                 <div className="grid" style={{ gap: '1rem' }}>
                   {cart.map((item) => (
                     <div key={item.cartId} style={{ display: 'flex', gap: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
-                      <img src={`/${item.image}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px' }} />
+                      <ProductImage src={item.image} alt={item.name} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px' }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600 }}>{item.name}</div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Size: {item.selectedSize}</div>

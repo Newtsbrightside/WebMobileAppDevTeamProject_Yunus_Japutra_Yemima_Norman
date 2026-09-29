@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useStore } from '../context/StoreContext';
+import ProductImage from '../components/ProductImage';
 
 const money = value => `$${Number(value || 0).toFixed(2)}`;
 
@@ -176,7 +177,7 @@ const ProductDetails = ({ shoe, onClose, onAdd, onWishlist, wished }) => {
   return (
     <Modal onClose={onClose} className="product-modal">
       <div className="detail-image">
-        <img src={shoe.image} alt={shoe.name} />
+        <ProductImage src={shoe.image} alt={shoe.name} />
       </div>
       <div className="detail-content">
         <button className="modal-close icon-button" onClick={onClose} aria-label="Close product details">
@@ -306,7 +307,7 @@ const CartDrawer = ({ cart, removeFromCart, onClose, onCheckout }) => {
           <div className="cart-items">
             {cart.map(item => (
               <div className="cart-item" key={item.cartId}>
-                <img src={item.image} alt={item.name} />
+                <ProductImage src={item.image} alt={item.name} />
                 <div className="cart-item-info">
                   <strong>{item.name}</strong>
                   <div className="cart-item-meta">
@@ -377,7 +378,7 @@ const WishlistModal = ({ wishlist, toggleWishlist, onAddToCart, onClose }) => {
           <div className="wishlist-items">
             {wishlist.map(shoe => (
               <div className="wishlist-item-row" key={shoe.id}>
-                <img src={shoe.image} alt={shoe.name} />
+                <ProductImage src={shoe.image} alt={shoe.name} />
                 <div className="cart-item-info">
                   <span className="product-category">{shoe.category}</span>
                   <strong>{shoe.name}</strong>
@@ -455,7 +456,7 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
         <div className="checkout-mini-items">
           {cart.map((item, idx) => (
             <div key={item.cartId || idx} className="checkout-mini-item">
-              <img src={item.image} alt="" />
+              <ProductImage src={item.image} alt={item.name} />
               <div>
                 <div>{item.name}</div>
                 <small style={{ color: 'var(--muted)' }}>Size {item.selectedSize} · {money(item.price)}</small>
@@ -779,7 +780,7 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrde
               inventory.map(shoe => (
                 <div className="table-row admin-row" key={shoe.id}>
                   <div className="product-cell">
-                    <img src={shoe.image} alt={shoe.name} />
+                    <ProductImage src={shoe.image} alt={shoe.name} />
                     <span>
                       <strong>{shoe.name}</strong>
                       <small>{shoe.id}</small>
@@ -1053,7 +1054,7 @@ const Client = ({
             return (
               <article className="product-card" key={shoe.id}>
                 <div className="product-image" onClick={() => setSelected(shoe)}>
-                  <img src={shoe.image} alt={shoe.name} loading="lazy" />
+                  <ProductImage src={shoe.image} alt={shoe.name} loading="lazy" />
                   <button
                     className={`heart-button ${isWished ? 'selected' : ''}`}
                     onClick={(event) => {
@@ -1115,7 +1116,7 @@ const Client = ({
           <div className="wishlist-strip">
             {wishlist.map(shoe => (
               <div className="wishlist-item" key={shoe.id}>
-                <img src={shoe.image} alt={shoe.name} />
+                <ProductImage src={shoe.image} alt={shoe.name} />
                 <div>
                   <strong>{shoe.name}</strong>
                   <small>{money(shoe.price)}</small>
