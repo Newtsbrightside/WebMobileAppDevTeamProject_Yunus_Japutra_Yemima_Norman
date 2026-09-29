@@ -1941,6 +1941,16 @@ h3 {
   color: var(--orange);
 }
 
+.finishline-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--white);
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
 .login-visual p {
   font-size: clamp(38px, 5.5vw, 76px);
   letter-spacing: -0.06em;

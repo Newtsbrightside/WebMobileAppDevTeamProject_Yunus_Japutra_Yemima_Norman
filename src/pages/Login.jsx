@@ -14,7 +14,7 @@ const Login = () => {
 
   return (
     <div className="login-page">
-      <div className="login-visual"><div className="logo-placeholder">F<span>/</span></div><p>Built for the next<br /><strong>finish line.</strong></p><small>YOUR LOGO / TYPOGRAPHY AREA</small></div>
+      <div className="login-visual"><div className="finishline-wordmark"><span className="logo-placeholder">F<span>/</span></span><span>FINISHLINE</span></div><p>Built for the next<br /><strong>finish line.</strong></p><small>CURATED FOOTWEAR / SINCE 2026</small></div>
       <div className="login-panel animate-fade-in">
         <div className="eyebrow"><Sparkles size={15} /> MEMBER ACCESS</div>
         <h1>Welcome<br /><em>back.</em></h1>

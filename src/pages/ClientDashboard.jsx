@@ -49,7 +49,6 @@ const ClientDashboard = () => {
       oscillator.start(audioCtx.currentTime);
       oscillator.stop(audioCtx.currentTime + 0.5);
     } catch {
-      console.log("Audio API not supported");
     }
   };
 
