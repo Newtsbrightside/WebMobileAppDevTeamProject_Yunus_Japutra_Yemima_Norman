@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('node:path');
 const multer = require('multer');
-const { db } = require('./db');
+const { pool } = require('./db');
 
 const router = express.Router();
 const upload = multer({
@@ -25,81 +25,179 @@ const validateProduct = body => {
   return null;
 };
 
-router.get('/products', (_request, response) => {
-  response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products ORDER BY id').all());
+router.get('/products', async (_request, response) => {
+  try {
+    const { rows } = await pool.query('SELECT id, name, category, price, stock, image FROM products ORDER BY id');
+    response.json(rows);
+  } catch (err) {
+    response.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/products', requireAdmin, (request, response) => {
+router.post('/products', requireAdmin, async (request, response) => {
   const error = validateProduct(request.body);
   if (error) return response.status(400).json({ error });
   const id = `s${Date.now()}`;
   const image = request.body.image || '';
-  db.prepare('INSERT INTO products (id, name, category, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)').run(id, request.body.name.trim(), request.body.category.trim(), Number(request.body.price), Number(request.body.stock), image);
-  response.status(201).json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(id));
-});
-
-router.put('/products/:id', requireAdmin, (request, response) => {
-  const { category, price, stock, image } = request.body;
-  if (image !== undefined) {
-    if (typeof image !== 'string' || !image.startsWith('https://')) return response.status(400).json({ error: 'Image URLs must start with https://.' });
-    const result = db.prepare('UPDATE products SET image = ? WHERE id = ?').run(image, request.params.id);
-    if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
-    return response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(request.params.id));
+  
+  try {
+    await pool.query(
+      'INSERT INTO products (id, name, category, price, stock, image) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, request.body.name.trim(), request.body.category.trim(), Number(request.body.price), Number(request.body.stock), image]
+    );
+    const { rows } = await pool.query('SELECT id, name, category, price, stock, image FROM products WHERE id = $1', [id]);
+    response.status(201).json(rows[0]);
+  } catch (err) {
+    response.status(500).json({ error: err.message });
   }
-  const product = db.prepare('SELECT category, price, stock FROM products WHERE id = ?').get(request.params.id);
-  if (!product) return response.status(404).json({ error: 'Product not found.' });
-  const nextCategory = category === undefined ? product.category : String(category).trim();
-  const nextPrice = price === undefined ? product.price : Number(price);
-  const nextStock = stock === undefined ? product.stock : Number(stock);
-  if (!nextCategory || Number.isNaN(nextPrice) || nextPrice < 0 || Number.isNaN(nextStock) || nextStock < 0) return response.status(400).json({ error: 'Category, non-negative price, and non-negative stock are required.' });
-  const result = db.prepare('UPDATE products SET category = ?, price = ?, stock = ? WHERE id = ?').run(nextCategory, nextPrice, nextStock, request.params.id);
-  if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
-  response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(request.params.id));
 });
 
-router.put('/products/:id/image', requireAdmin, upload.single('image'), (request, response) => {
+router.put('/products/:id', requireAdmin, async (request, response) => {
+  const { category, price, stock, image } = request.body;
+  const id = request.params.id;
+
+  try {
+    if (image !== undefined) {
+      if (typeof image !== 'string' || !image.startsWith('https://')) return response.status(400).json({ error: 'Image URLs must start with https://.' });
+      const result = await pool.query('UPDATE products SET image = $1 WHERE id = $2 RETURNING id, name, category, price, stock, image', [image, id]);
+      if (result.rowCount === 0) return response.status(404).json({ error: 'Product not found.' });
+      return response.json(result.rows[0]);
+    }
+    
+    const { rows } = await pool.query('SELECT category, price, stock FROM products WHERE id = $1', [id]);
+    if (rows.length === 0) return response.status(404).json({ error: 'Product not found.' });
+    
+    const product = rows[0];
+    const nextCategory = category === undefined ? product.category : String(category).trim();
+    const nextPrice = price === undefined ? product.price : Number(price);
+    const nextStock = stock === undefined ? product.stock : Number(stock);
+    
+    if (!nextCategory || Number.isNaN(nextPrice) || nextPrice < 0 || Number.isNaN(nextStock) || nextStock < 0) return response.status(400).json({ error: 'Category, non-negative price, and non-negative stock are required.' });
+    
+    const updateResult = await pool.query(
+      'UPDATE products SET category = $1, price = $2, stock = $3 WHERE id = $4 RETURNING id, name, category, price, stock, image',
+      [nextCategory, nextPrice, nextStock, id]
+    );
+    if (updateResult.rowCount === 0) return response.status(404).json({ error: 'Product not found.' });
+    response.json(updateResult.rows[0]);
+  } catch (err) {
+    response.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/products/:id/image', requireAdmin, upload.single('image'), async (request, response) => {
   if (!request.file) return response.status(400).json({ error: 'A PNG, JPEG, or WEBP image up to 2 MB is required.' });
   const image = `/uploads/${request.file.filename}`;
-  const result = db.prepare('UPDATE products SET image = ? WHERE id = ?').run(image, request.params.id);
-  if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
-  response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(request.params.id));
+  const id = request.params.id;
+  
+  try {
+    const result = await pool.query('UPDATE products SET image = $1 WHERE id = $2 RETURNING id, name, category, price, stock, image', [image, id]);
+    if (result.rowCount === 0) return response.status(404).json({ error: 'Product not found.' });
+    response.json(result.rows[0]);
+  } catch (err) {
+    response.status(500).json({ error: err.message });
+  }
 });
 
-router.delete('/products/:id', requireAdmin, (request, response) => {
-  const result = db.prepare('DELETE FROM products WHERE id = ?').run(request.params.id);
-  if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
-  response.status(204).end();
+router.delete('/products/:id', requireAdmin, async (request, response) => {
+  try {
+    const result = await pool.query('DELETE FROM products WHERE id = $1', [request.params.id]);
+    if (result.rowCount === 0) return response.status(404).json({ error: 'Product not found.' });
+    response.status(204).end();
+  } catch (err) {
+    response.status(500).json({ error: err.message });
+  }
 });
 
-router.get('/orders', (_request, response) => {
-  const orders = db.prepare('SELECT id, customer, total, status, created_at AS date FROM orders ORDER BY created_at DESC').all();
-  response.json(orders.map(order => ({ ...order, customer: JSON.parse(order.customer), items: db.prepare('SELECT product_id AS id, quantity FROM order_items WHERE order_id = ?').all(order.id) })));
+router.get('/orders', async (_request, response) => {
+  try {
+    const { rows: orders } = await pool.query('SELECT id, customer, total, status, created_at AS date FROM orders ORDER BY created_at DESC');
+    const { rows: orderItems } = await pool.query('SELECT order_id, product_id AS id, quantity FROM order_items');
+    
+    response.json(orders.map(order => ({
+      ...order,
+      // Postgres jsonb driver might already parse it into an object, depending on how it was queried. 
+      // If customer is an object, no need to parse. If string, parse it.
+      customer: typeof order.customer === 'string' ? JSON.parse(order.customer) : order.customer,
+      items: orderItems.filter(item => item.order_id === order.id).map(i => ({ id: i.id, quantity: i.quantity }))
+    })));
+  } catch (err) {
+    response.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/orders', (request, response) => {
+router.post('/orders', async (request, response) => {
   const { customer, items } = request.body;
   if (!customer?.name || !customer?.address || !Array.isArray(items) || items.length === 0) return response.status(400).json({ error: 'Customer details and at least one order item are required.' });
-  const products = items.map(item => db.prepare('SELECT id, price, stock FROM products WHERE id = ?').get(item.id));
-  if (products.some(product => !product)) return response.status(400).json({ error: 'One or more products no longer exist.' });
-  if (products.some((product, index) => product.stock < Number(items[index].quantity || 1))) return response.status(409).json({ error: 'One or more products do not have enough stock.' });
-  const id = `ORD-${Math.floor(Math.random() * 1000000)}`;
-  const total = products.reduce((sum, product, index) => sum + product.price * Number(items[index].quantity || 1), 0);
-  const createOrder = db.transaction(() => {
-    db.prepare('INSERT INTO orders (id, customer, total, status, created_at) VALUES (?, ?, ?, ?, ?)').run(id, JSON.stringify(customer), total, 'Pending', new Date().toISOString());
-    const addItem = db.prepare('INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)');
-    const reduceStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
-    items.forEach((item, index) => { const quantity = Number(item.quantity || 1); addItem.run(id, item.id, quantity); reduceStock.run(quantity, products[index].id); });
-  });
-  createOrder();
-  response.status(201).json({ id, customer, total, status: 'Pending' });
+  
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Check products
+    const productIds = items.map(item => item.id);
+    const { rows: products } = await client.query('SELECT id, price, stock FROM products WHERE id = ANY($1)', [productIds]);
+    
+    if (products.length !== items.length) {
+      await client.query('ROLLBACK');
+      return response.status(400).json({ error: 'One or more products no longer exist.' });
+    }
+    
+    // Validate stock and compute total
+    let total = 0;
+    for (const item of items) {
+      const product = products.find(p => p.id === item.id);
+      const quantity = Number(item.quantity || 1);
+      if (product.stock < quantity) {
+        await client.query('ROLLBACK');
+        return response.status(409).json({ error: 'One or more products do not have enough stock.' });
+      }
+      total += product.price * quantity;
+    }
+    
+    const id = `ORD-${Math.floor(Math.random() * 1000000)}`;
+    const status = 'Pending';
+    const createdAt = new Date().toISOString();
+    
+    // Postgres inserts customer as JSONB natively
+    await client.query(
+      'INSERT INTO orders (id, customer, total, status, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [id, customer, total, status, createdAt]
+    );
+    
+    for (const item of items) {
+      const quantity = Number(item.quantity || 1);
+      await client.query(
+        'INSERT INTO order_items (order_id, product_id, quantity) VALUES ($1, $2, $3)',
+        [id, item.id, quantity]
+      );
+      await client.query(
+        'UPDATE products SET stock = stock - $1 WHERE id = $2',
+        [quantity, item.id]
+      );
+    }
+    
+    await client.query('COMMIT');
+    response.status(201).json({ id, customer, total, status });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    response.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
-router.put('/orders/:id', requireAdmin, (request, response) => {
+router.put('/orders/:id', requireAdmin, async (request, response) => {
   const allowed = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
   if (!allowed.includes(request.body.status)) return response.status(400).json({ error: 'Invalid order status.' });
-  const result = db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(request.body.status, request.params.id);
-  if (!result.changes) return response.status(404).json({ error: 'Order not found.' });
-  response.json({ id: request.params.id, status: request.body.status });
+  
+  try {
+    const result = await pool.query('UPDATE orders SET status = $1 WHERE id = $2 RETURNING id', [request.body.status, request.params.id]);
+    if (result.rowCount === 0) return response.status(404).json({ error: 'Order not found.' });
+    response.json({ id: request.params.id, status: request.body.status });
+  } catch (err) {
+    response.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

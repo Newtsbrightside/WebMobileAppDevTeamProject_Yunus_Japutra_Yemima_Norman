@@ -1,3 +1,7 @@
 {
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "pg": "^8.23.0"
+  }
 }

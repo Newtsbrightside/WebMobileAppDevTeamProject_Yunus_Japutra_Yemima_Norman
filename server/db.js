@@ -1,53 +1,66 @@
-const Database = require('better-sqlite3');
-const path = require('node:path');
+require('dotenv').config();
+const { Pool } = require('pg');
 const fs = require('node:fs');
+const path = require('node:path');
 
-const dbPath = path.join(__dirname, 'finishline.db');
-const db = new Database(dbPath);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/finishline',
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
-db.pragma('journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS products (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    price REAL NOT NULL CHECK (price >= 0),
-    stock INTEGER NOT NULL CHECK (stock >= 0),
-    image TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS orders (
-    id TEXT PRIMARY KEY,
-    customer TEXT NOT NULL,
-    total REAL NOT NULL,
-    status TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    product_id TEXT NOT NULL,
-    quantity INTEGER NOT NULL CHECK (quantity > 0)
-  );
-`);
+const initDB = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS products (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      price REAL NOT NULL CHECK (price >= 0),
+      stock INTEGER NOT NULL CHECK (stock >= 0),
+      image TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      customer JSONB NOT NULL,
+      total REAL NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS order_items (
+      id SERIAL PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      product_id TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0)
+    );
+  `);
+};
 
-const seedProducts = products => {
-  const count = db.prepare('SELECT COUNT(*) AS count FROM products').get().count;
-  if (count > 0) return;
+const seedProducts = async (products) => {
+  const { rows } = await pool.query('SELECT COUNT(*) AS count FROM products');
+  if (parseInt(rows[0].count) > 0) return;
 
-  const insert = db.prepare('INSERT INTO products (id, name, category, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)');
-  const seed = db.transaction(items => items.forEach(product => insert.run(
-    product.id,
-    product.name,
-    product.category,
-    product.price,
-    product.stock,
-    product.image
-  )));
-  seed(products);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const product of products) {
+      await client.query(
+        'INSERT INTO products (id, name, category, price, stock, image) VALUES ($1, $2, $3, $4, $5, $6)',
+        [product.id, product.name, product.category, product.price, product.stock, product.image]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 const ensureUploadsDirectory = () => {
   fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
 };
 
-module.exports = { db, seedProducts, ensureUploadsDirectory };
+// Initialize tables on startup
+initDB().catch(err => console.error('Database init error:', err));
+
+module.exports = { pool, seedProducts, ensureUploadsDirectory };
