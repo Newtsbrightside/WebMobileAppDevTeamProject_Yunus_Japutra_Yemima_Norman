@@ -593,7 +593,7 @@ const TopUp = ({ onClose, onTopUp }) => {
 /* ==========================================================
    ADMIN COMPONENT
    ========================================================== */
-const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProductImage, updateOrderStatus, onChat }) => {
+const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProductImage, updateOrderStatus, onChat, apiConnected, apiLoading }) => {
   const [tab, setTab] = useState('inventory');
   const [editingImage, setEditingImage] = useState(null);
   const lowStockShoes = inventory.filter(shoe => shoe.stock <= 12);
@@ -779,7 +779,7 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
               <h2>Inventory Registry</h2>
             </div>
             <span className="status-dot">
-              <i /> Changes sync locally
+              <i /> {apiLoading ? 'Checking database...' : apiConnected ? 'Database connected' : 'Offline demo mode: changes sync locally'}
             </span>
           </div>
 
@@ -895,7 +895,7 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
 const Client = ({
   inventory, wishlist, toggleWishlist, cart, addToCart,
   removeFromCart, orders, wallet, addFunds, checkout,
-  messages, sendMessage
+  messages, sendMessage, apiConnected, apiLoading
 }) => {
   const [sortBy, setSortBy] = useState('default');
   const [query, setQuery] = useState('');
@@ -977,7 +977,7 @@ const Client = ({
     <main className="page-shell animate-fade-in">
       <header className="page-heading client-heading">
         <div>
-          <p className="eyebrow">THE NEW SEASON / 2026</p>
+          <p className="eyebrow">THE NEW SEASON / 2026 · {apiLoading ? 'CHECKING DATABASE' : apiConnected ? 'DATABASE CONNECTED' : 'OFFLINE DEMO MODE'}</p>
           <h1>Find your <em>pace.</em></h1>
           <p className="muted">Engineered athletic footwear curated for speed, lifestyle, and everyday comfort.</p>
         </div>

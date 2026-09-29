@@ -39,7 +39,13 @@ router.post('/products', requireAdmin, (request, response) => {
 });
 
 router.put('/products/:id', requireAdmin, (request, response) => {
-  const { category, price, stock } = request.body;
+  const { category, price, stock, image } = request.body;
+  if (image !== undefined) {
+    if (typeof image !== 'string' || !image.startsWith('https://')) return response.status(400).json({ error: 'Image URLs must start with https://.' });
+    const result = db.prepare('UPDATE products SET image = ? WHERE id = ?').run(image, request.params.id);
+    if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
+    return response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(request.params.id));
+  }
   if (!category || Number.isNaN(Number(price)) || Number(price) < 0 || Number.isNaN(Number(stock)) || Number(stock) < 0) return response.status(400).json({ error: 'Category, non-negative price, and non-negative stock are required.' });
   const result = db.prepare('UPDATE products SET category = ?, price = ?, stock = ? WHERE id = ?').run(category.trim(), Number(price), Number(stock), request.params.id);
   if (!result.changes) return response.status(404).json({ error: 'Product not found.' });

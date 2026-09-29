@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { initialShoes } from '../data/data';
+import { api } from '../api/api';
 
 const StoreContext = createContext();
 
@@ -38,6 +39,27 @@ export const StoreProvider = ({ children }) => {
     const saved = localStorage.getItem('finish_line_messages');
     return saved ? JSON.parse(saved) : [{ id: 'welcome', sender: 'admin', text: 'Welcome to Finishline support. How can we help?', time: new Date().toISOString() }];
   });
+  const [apiConnected, setApiConnected] = useState(false);
+  const [apiLoading, setApiLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api.getProducts(),
+      api.getOrders(localStorage.getItem('finish_line_role'))
+    ]).then(([products, remoteOrders]) => {
+      if (!active) return;
+      const seeded = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe]));
+      setInventory(products.map(product => ({ ...seeded[product.id], ...product })));
+      setOrders(remoteOrders);
+      setApiConnected(true);
+    }).catch(() => {
+      if (active) setApiConnected(false);
+    }).finally(() => {
+      if (active) setApiLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('finish_line_inventory', JSON.stringify(inventory));
@@ -60,28 +82,45 @@ export const StoreProvider = ({ children }) => {
 
   // Admin Methods
   const addShoe = (shoe) => {
-    setInventory(current => [...current, { ...shoe, id: 's' + Date.now() }]);
+    const localShoe = { ...shoe, id: 's' + Date.now() };
+    setInventory(current => [...current, localShoe]);
+    if (apiConnected) api.addProduct(localShoe, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
   };
 
   const updateShoe = (id, updates) => {
     setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, ...updates } : shoe));
+    if (apiConnected) api.updateProduct(id, updates, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
   };
 
   const deleteShoe = (id) => {
     setInventory(current => current.filter(s => s.id !== id));
+    if (apiConnected) api.deleteProduct(id, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
   };
 
   // This guard protects the shared mutation in the frontend demo; the backend repeats it server-side.
   const updateProductImage = (id, image) => {
     if (localStorage.getItem('finish_line_role') !== 'administrator') return false;
-    setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, image } : shoe));
-    setCart(current => current.map(item => item.id === id ? { ...item, image } : item));
-    setWishlist(current => current.map(item => item.id === id ? { ...item, image } : item));
+    const persist = (nextImage, remoteImage = image) => {
+      setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, image: nextImage } : shoe));
+      setCart(current => current.map(item => item.id === id ? { ...item, image: nextImage } : item));
+      setWishlist(current => current.map(item => item.id === id ? { ...item, image: nextImage } : item));
+      if (apiConnected) api.updateProductImage(id, remoteImage, localStorage.getItem('finish_line_role')).then(product => {
+        setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, image: product.image } : shoe));
+      }).catch(() => setApiConnected(false));
+    };
+    if (image instanceof File) {
+      const reader = new FileReader();
+      reader.onload = () => persist(String(reader.result), image);
+      reader.readAsDataURL(image);
+    } else {
+      persist(image);
+    }
     return true;
   };
   
   const updateOrderStatus = (orderId, status) => {
     setOrders(current => current.map(order => order.id === orderId ? { ...order, status } : order));
+    if (apiConnected) api.updateOrderStatus(orderId, status, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
   };
 
   // Client Methods
@@ -133,6 +172,7 @@ export const StoreProvider = ({ children }) => {
     
     setInventory(updatedInventory);
     setOrders(current => [...current, newOrder]);
+    if (apiConnected) api.createOrder(customerInfo, cart, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
     clearCart();
     return newOrder;
   };
@@ -143,7 +183,7 @@ export const StoreProvider = ({ children }) => {
       cart, addToCart, removeFromCart, clearCart,
       wishlist, toggleWishlist,
       orders, checkout, updateOrderStatus,
-      wallet, addFunds, messages, sendMessage
+      wallet, addFunds, messages, sendMessage, apiConnected, apiLoading
     }}>
       {children}
     </StoreContext.Provider>

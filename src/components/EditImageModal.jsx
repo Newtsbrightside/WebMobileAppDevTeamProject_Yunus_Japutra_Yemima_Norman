@@ -40,10 +40,7 @@ const EditImageModal = ({ product, onClose, onSave }) => {
     }
 
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => onSave(String(reader.result));
-      reader.onerror = () => setError('The selected image could not be read.');
-      reader.readAsDataURL(file);
+      onSave(file);
       return;
     }
 
