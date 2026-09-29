@@ -1,6 +1,8 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+export const API_ENABLED = Boolean(import.meta.env.VITE_API_URL || import.meta.env.DEV);
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
 const request = async (path, options = {}) => {
+  if (!API_ENABLED) throw new Error('API disabled in production demo mode.');
   const response = await fetch(`${API_BASE}${path}`, options);
   const payload = response.status === 204 ? null : await response.json();
   if (!response.ok) throw new Error(payload?.error || 'API request failed.');

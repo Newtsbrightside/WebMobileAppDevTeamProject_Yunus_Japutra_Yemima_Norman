@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { initialShoes } from '../data/data';
-import { api } from '../api/api';
+import { api, API_ENABLED } from '../api/api';
 
 const StoreContext = createContext();
 
@@ -40,10 +40,14 @@ export const StoreProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : [{ id: 'welcome', sender: 'admin', text: 'Welcome to Finishline support. How can we help?', time: new Date().toISOString() }];
   });
   const [apiConnected, setApiConnected] = useState(false);
-  const [apiLoading, setApiLoading] = useState(true);
+  const [apiLoading, setApiLoading] = useState(API_ENABLED);
 
   useEffect(() => {
     let active = true;
+    if (!API_ENABLED) {
+      return undefined;
+    }
+
     Promise.all([
       api.getProducts(),
       api.getOrders(localStorage.getItem('finish_line_role'))
