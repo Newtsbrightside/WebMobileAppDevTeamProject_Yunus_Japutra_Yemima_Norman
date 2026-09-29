@@ -1,16 +1,73 @@
-# React + Vite
+# Finishline
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Finishline is a React/Vite footwear storefront prototype. Clients can browse and filter shoes, save wishlist items, build a shopping bag, complete a simulated checkout, review recent orders, top up a simulated wallet, and contact support. Administrators can manage inventory, add products, update stock and prices, manage order fulfillment, and answer support messages.
 
-Currently, two official plugins are available:
+## Actors and Permissions
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Feature | Client | Administrator |
+| --- | --- | --- |
+| Sign in and log out | Yes | Yes |
+| View, search, and filter catalog | Yes | View catalog |
+| View product details and select size | Yes | - |
+| Manage wishlist and shopping bag | Yes | - |
+| Complete simulated checkout | Yes | - |
+| View recent orders | Yes | View all orders |
+| Send support messages | Yes | Answer support |
+| Add new shoe | - | Yes |
+| Edit category, price, and stock | - | Yes |
+| Delete shoes | - | Yes |
+| Update order status | - | Yes |
 
-## React Compiler
+## What It Does Not Do
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- It has no backend, database, or server-side authentication.
+- Accounts and credentials are hardcoded for demonstration.
+- Inventory, orders, wishlist, wallet, and messages are stored in browser `localStorage`.
+- Checkout and wallet payments are simulated; no payment is processed.
+- Data is not shared between different browsers or devices.
 
-## Expanding the Oxlint configuration
+## Demo Accounts
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+| Role | Username | Password |
+| --- | --- | --- |
+| Administrator | `admin` | `password` |
+| Client | `client` | `password` |
+
+## Running Locally
+
+```bash
+npm install
+npm run dev
+```
+
+Create a production build with:
+
+```bash
+npm run build
+```
+
+## Live Site
+
+[Open the Finishline GitHub Pages site](https://newtsbrightside.github.io/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman/)
+
+## Team
+
+- Muhammad Yunus Zulfikar Putra Dwi Hakim
+- Yemima Nathania Anaya
+- Calvin Japutra
+- Norman Abimael Zachary
+
+## Folder Structure
+
+```text
+src/
+  assets/images/       Product images and fallback asset
+  components/          Shared UI components
+  context/             Authentication and store state
+  pages/               Login, dashboard, and add-shoe screens
+  data.js              Demo users, products, and store locations
+  App.jsx              HashRouter routes and access protection
+  index.css            Shared application styles
+public/                Static favicon and icon sprite
+.github/workflows/     GitHub Pages deployment workflow
+```
