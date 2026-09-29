@@ -50,6 +50,34 @@ npm run build
 
 [Open the Finishline GitHub Pages site](https://newtsbrightside.github.io/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman/)
 
+## Backend (Optional Bonus)
+
+The optional backend is an Express + SQLite service in `server/`. It persists products and orders, accepts administrator product edits, stores uploaded product images in `server/uploads/`, and seeds the four demo products into SQLite on first start.
+
+The GitHub Pages deployment cannot host Node.js, so the live site automatically uses offline demo mode when the API is unavailable. Local development can use the database-backed mode:
+
+```bash
+npm install
+npm run dev:full
+```
+
+The API runs on `http://localhost:3001`. The frontend uses `VITE_API_URL` from `.env` when provided; `.env.example` contains the default local value.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/products` | List products |
+| POST | `/api/products` | Add a product; administrator role required |
+| PUT | `/api/products/:id` | Edit category, price, stock, or HTTPS image URL; administrator role required |
+| PUT | `/api/products/:id/image` | Upload a PNG, JPEG, or WEBP image up to 2 MB; administrator role required |
+| DELETE | `/api/products/:id` | Delete a product; administrator role required |
+| GET | `/api/orders` | List orders |
+| POST | `/api/orders` | Create an order from checkout |
+| PUT | `/api/orders/:id` | Update fulfillment status; administrator role required |
+
+The demo backend checks the `x-role` header for administrator routes. This is intentionally a teaching/demo check, not production authentication.
+
+The original `classic-court.jpg` and `urban-suede.jpg` files are byte-identical in the supplied assets. The app keeps both product records and allows an administrator to replace either image rather than inventing a replacement asset.
+
 ## Team
 
 - Muhammad Yunus Zulfikar Putra Dwi Hakim
@@ -70,4 +98,5 @@ src/
   index.css            Shared application styles
 public/                Static favicon and icon sprite
 .github/workflows/     GitHub Pages deployment workflow
+server/                Optional Express + SQLite API, seed images, and uploads
 ```

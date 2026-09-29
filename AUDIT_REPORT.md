@@ -13,6 +13,16 @@ Audit scope: active files under `src/` after the image, routing, cleanup, brandi
 | C2 Semantic HTML and responsive CSS | PASS | Active form labels have matching `htmlFor`/ID pairs, the unused inline-style legacy pages were removed, and the active stylesheet includes responsive rules for mobile and desktop layouts. |
 | C3 Single data source | PASS | Users, shoes, and store locations are defined in `src/data/data.js`; contexts and pages read those arrays rather than duplicating the records. |
 
+## Feature Additions
+
+| Feature | Result | Evidence |
+| --- | --- | --- |
+| Admin image editing | PASS | `EditImageModal` validates file type, 2 MB size, HTTPS URLs, and required input; `updateProductImage` updates inventory, cart, and wishlist state with an admin guard. |
+| Optional database backend | PASS | `server/` contains Express, SQLite, multer upload handling, seeded products, product/order routes, parameterized queries, and 403 checks for non-admin roles. |
+| Offline fallback | PASS | `StoreContext` probes the API and falls back to localStorage/hardcoded data when the API is unavailable; both dashboards show the current mode. |
+
+The four supplied product assets include a byte-identical `classic-court.jpg` and `urban-suede.jpg` pair. This is documented and intentionally left unchanged; the admin image editor provides the correction path without inventing an image.
+
 ## Completed Fixes
 
 1. Added explicit checkout validation and a visible error message.

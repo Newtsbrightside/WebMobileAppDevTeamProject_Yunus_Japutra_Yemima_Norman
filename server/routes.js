@@ -46,8 +46,13 @@ router.put('/products/:id', requireAdmin, (request, response) => {
     if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
     return response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(request.params.id));
   }
-  if (!category || Number.isNaN(Number(price)) || Number(price) < 0 || Number.isNaN(Number(stock)) || Number(stock) < 0) return response.status(400).json({ error: 'Category, non-negative price, and non-negative stock are required.' });
-  const result = db.prepare('UPDATE products SET category = ?, price = ?, stock = ? WHERE id = ?').run(category.trim(), Number(price), Number(stock), request.params.id);
+  const product = db.prepare('SELECT category, price, stock FROM products WHERE id = ?').get(request.params.id);
+  if (!product) return response.status(404).json({ error: 'Product not found.' });
+  const nextCategory = category === undefined ? product.category : String(category).trim();
+  const nextPrice = price === undefined ? product.price : Number(price);
+  const nextStock = stock === undefined ? product.stock : Number(stock);
+  if (!nextCategory || Number.isNaN(nextPrice) || nextPrice < 0 || Number.isNaN(nextStock) || nextStock < 0) return response.status(400).json({ error: 'Category, non-negative price, and non-negative stock are required.' });
+  const result = db.prepare('UPDATE products SET category = ?, price = ?, stock = ? WHERE id = ?').run(nextCategory, nextPrice, nextStock, request.params.id);
   if (!result.changes) return response.status(404).json({ error: 'Product not found.' });
   response.json(db.prepare('SELECT id, name, category, price, stock, image FROM products WHERE id = ?').get(request.params.id));
 });
