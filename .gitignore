@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+server/finishline.db
+server/finishline.db-shm
+server/finishline.db-wal
+server/uploads/*
+!server/uploads/.gitkeep
 
 # Editor directories and files
 .vscode/*
