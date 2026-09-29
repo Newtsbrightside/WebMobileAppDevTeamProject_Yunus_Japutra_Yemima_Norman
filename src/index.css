@@ -851,6 +851,13 @@ h3 {
   animation: modal-zoom 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+.image-edit-modal { width: min(520px, 100%); }
+.image-edit-preview { width: 100%; height: 220px; object-fit: cover; background: var(--surface-subtle); margin-bottom: 20px; }
+.image-edit-form { display: grid; gap: 16px; }
+.image-edit-form label { color: var(--muted); }
+.image-edit-form input { width: 100%; }
+.image-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 @keyframes modal-zoom {
   from { opacity: 0; transform: scale(0.96) translateY(8px); }
   to { opacity: 1; transform: scale(1) translateY(0); }

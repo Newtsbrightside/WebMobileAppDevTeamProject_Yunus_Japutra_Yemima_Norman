@@ -13,6 +13,7 @@ export const AuthProvider = ({ children }) => {
     const foundUser = users.find(u => u.username === username && u.password === password);
     if (foundUser) {
       setUser(foundUser);
+      localStorage.setItem('finish_line_role', foundUser.role);
       setError('');
       return true;
     }
@@ -22,6 +23,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     setUser(null);
+    localStorage.removeItem('finish_line_role');
   };
 
   return (

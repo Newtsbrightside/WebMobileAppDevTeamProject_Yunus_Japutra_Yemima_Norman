@@ -70,6 +70,15 @@ export const StoreProvider = ({ children }) => {
   const deleteShoe = (id) => {
     setInventory(current => current.filter(s => s.id !== id));
   };
+
+  // This guard protects the shared mutation in the frontend demo; the backend repeats it server-side.
+  const updateProductImage = (id, image) => {
+    if (localStorage.getItem('finish_line_role') !== 'administrator') return false;
+    setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, image } : shoe));
+    setCart(current => current.map(item => item.id === id ? { ...item, image } : item));
+    setWishlist(current => current.map(item => item.id === id ? { ...item, image } : item));
+    return true;
+  };
   
   const updateOrderStatus = (orderId, status) => {
     setOrders(current => current.map(order => order.id === orderId ? { ...order, status } : order));
@@ -130,7 +139,7 @@ export const StoreProvider = ({ children }) => {
 
   return (
     <StoreContext.Provider value={{ 
-      inventory, addShoe, updateShoe, deleteShoe, 
+      inventory, addShoe, updateShoe, deleteShoe, updateProductImage,
       cart, addToCart, removeFromCart, clearCart,
       wishlist, toggleWishlist,
       orders, checkout, updateOrderStatus,

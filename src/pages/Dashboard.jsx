@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom';
 import confetti from 'canvas-confetti';
 import {
   ArrowUpRight, Check, CreditCard, Heart, MessageCircle, Package,
-  Plus, Search, Send, Share2, ShoppingBag, Trash2, X, Sparkles
+  Plus, Pencil, Search, Send, Share2, ShoppingBag, Trash2, X, Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useStore } from '../context/StoreContext';
 import ProductImage from '../components/ProductImage';
+import EditImageModal from '../components/EditImageModal';
 import { Link } from 'react-router-dom';
 
 const money = value => `$${Number(value || 0).toFixed(2)}`;
@@ -592,8 +593,9 @@ const TopUp = ({ onClose, onTopUp }) => {
 /* ==========================================================
    ADMIN COMPONENT
    ========================================================== */
-const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrderStatus, onChat }) => {
+const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProductImage, updateOrderStatus, onChat }) => {
   const [tab, setTab] = useState('inventory');
+  const [editingImage, setEditingImage] = useState(null);
   const lowStockShoes = inventory.filter(shoe => shoe.stock <= 12);
   const lowStock = lowStockShoes.length;
   const validOrders = orders.filter(order => order.status !== 'Cancelled');
@@ -822,6 +824,14 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrde
                     value={shoe.stock}
                     onChange={event => updateShoe(shoe.id, { stock: Number(event.target.value) })}
                   />
+                  <button className="icon-button"
+                    type="button"
+                    title="Edit image"
+                    onClick={() => setEditingImage(shoe)}
+                    aria-label={`Edit image for ${shoe.name}`}
+                  >
+                    <Pencil size={16} />
+                  </button>
                   <button
                     className="icon-button danger"
                     title="Remove shoe"
@@ -834,6 +844,7 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrde
               ))
             )}
           </div>
+          {editingImage && <EditImageModal product={editingImage} onClose={() => setEditingImage(null)} onSave={image => { updateProductImage(editingImage.id, image); setEditingImage(null); }} />}
         </section>
       ) : (
         <section className="orders-panel">
