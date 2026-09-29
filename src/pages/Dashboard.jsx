@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useStore } from '../context/StoreContext';
 import ProductImage from '../components/ProductImage';
+import { Link } from 'react-router-dom';
 
 const money = value => `$${Number(value || 0).toFixed(2)}`;
 
@@ -618,9 +619,9 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateOrde
               <span className="nav-count">{messages.filter(item => item.sender === 'client').length}</span>
             )}
           </button>
-          <a className="btn btn-primary" href="/add-shoe">
+          <Link className="btn btn-primary" to="/add-shoe">
             Add New Shoe <ArrowUpRight size={17} />
-          </a>
+          </Link>
         </div>
       </header>
 
