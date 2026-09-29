@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { initialShoes } from '../data';
+import { initialShoes } from '../data/data';
 
 const StoreContext = createContext();
 

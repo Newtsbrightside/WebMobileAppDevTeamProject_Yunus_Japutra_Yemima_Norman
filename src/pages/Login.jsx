@@ -28,8 +28,9 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} style={{ textAlign: 'left' }}>
           <div className="form-group">
-            <label className="form-label">Username</label>
+            <label className="form-label" htmlFor="login-username">Username</label>
             <input 
+              id="login-username"
               type="text" 
               className="form-input" 
               value={username} 
@@ -39,8 +40,9 @@ const Login = () => {
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label className="form-label" htmlFor="login-password">Password</label>
             <input 
+              id="login-password"
               type="password" 
               className="form-input" 
               value={password} 

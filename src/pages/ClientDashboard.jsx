@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { ShoppingCart, Heart, Share2, Ruler, CheckCircle2, MapPin, Search, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { storeLocations } from '../data';
+import { storeLocations } from '../data/data';
 import ProductImage from '../components/ProductImage';
 
 const ClientDashboard = () => {

@@ -434,8 +434,18 @@ const WishlistModal = ({ wishlist, toggleWishlist, onAddToCart, onClose }) => {
    ========================================================== */
 const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
   const [form, setForm] = useState({ name: '', address: '', card: '' });
+  const [error, setError] = useState('');
   const total = cart.reduce((sum, item) => sum + Number(item.price), 0);
   const update = event => setForm({ ...form, [event.target.name]: event.target.value });
+  const submit = event => {
+    event.preventDefault();
+    if (!form.name.trim() || !form.address.trim() || !form.card.trim()) {
+      setError('Complete your name, delivery address, and payment card before placing the order.');
+      return;
+    }
+    setError('');
+    onSubmit(form);
+  };
 
   return (
     <Modal onClose={onClose} className="checkout-modal">
@@ -455,8 +465,8 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
           <strong>{money(total)}</strong>
         </div>
         <div className="checkout-mini-items">
-          {cart.map((item, idx) => (
-            <div key={item.cartId || idx} className="checkout-mini-item">
+          {cart.map(item => (
+            <div key={item.cartId} className="checkout-mini-item">
               <ProductImage src={item.image} alt={item.name} />
               <div>
                 <div>{item.name}</div>
@@ -467,10 +477,11 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
         </div>
       </div>
 
-      <form className="checkout-form" onSubmit={event => { event.preventDefault(); onSubmit(form); }}>
-        <label>
+      <form className="checkout-form" onSubmit={submit}>
+        <label htmlFor="checkout-name">
           Full Name
           <input
+            id="checkout-name"
             name="name"
             value={form.name}
             onChange={update}
@@ -479,9 +490,10 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
             autoComplete="name"
           />
         </label>
-        <label>
+        <label htmlFor="checkout-address">
           Delivery Address
           <input
+            id="checkout-address"
             name="address"
             value={form.address}
             onChange={update}
@@ -490,9 +502,10 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
             autoComplete="street-address"
           />
         </label>
-        <label>
+        <label htmlFor="checkout-card">
           Payment Card
           <input
+            id="checkout-card"
             name="card"
             value={form.card}
             onChange={update}
@@ -506,6 +519,8 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
           <CreditCard size={16} />
           <span>Wallet Balance: <strong>{money(wallet)}</strong></span>
         </div>
+
+        {error && <p className="form-error" role="alert">{error}</p>}
 
         <button className="btn btn-primary full-button checkout-submit-btn" type="submit">
           Authorize & Place Order · {money(total)} <Check size={16} />
