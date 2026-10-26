@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node server/index.js",
-    "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
+    "backend": "node backend/server.js",
+    "backend:dev": "node --watch backend/server.js",
+    "server": "node backend/server.js",
+    "dev:full": "concurrently \"npm run dev\" \"npm run backend\"",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"

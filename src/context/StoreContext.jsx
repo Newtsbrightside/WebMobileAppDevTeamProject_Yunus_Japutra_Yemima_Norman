@@ -50,12 +50,20 @@ export const StoreProvider = ({ children }) => {
 
     Promise.all([
       api.getProducts(),
-      api.getOrders(localStorage.getItem('finish_line_role'))
-    ]).then(([products, remoteOrders]) => {
+      api.getOrders(localStorage.getItem('finish_line_role')),
+      api.getMessages().catch(() => [])
+    ]).then(([products, remoteOrders, remoteMessages]) => {
       if (!active) return;
       const seeded = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe]));
-      setInventory(products.map(product => ({ ...seeded[product.id], ...product })));
-      setOrders(remoteOrders);
+      if (Array.isArray(products) && products.length > 0) {
+        setInventory(products.map(product => ({ ...seeded[product.id], ...product })));
+      }
+      if (Array.isArray(remoteOrders)) {
+        setOrders(remoteOrders);
+      }
+      if (Array.isArray(remoteMessages) && remoteMessages.length > 0) {
+        setMessages(remoteMessages);
+      }
       setApiConnected(true);
     }).catch(() => {
       if (active) setApiConnected(false);
@@ -150,7 +158,11 @@ export const StoreProvider = ({ children }) => {
 
   const sendMessage = (text, sender) => {
     if (!text.trim()) return;
-    setMessages(current => [...current, { id: Date.now(), sender, text: text.trim(), time: new Date().toISOString() }]);
+    const newMsg = { id: Date.now(), sender, text: text.trim(), time: new Date().toISOString() };
+    setMessages(current => [...current, newMsg]);
+    if (apiConnected) {
+      api.sendMessage(text.trim(), sender).catch(() => setApiConnected(false));
+    }
   };
 
   const checkout = (customerInfo) => {
