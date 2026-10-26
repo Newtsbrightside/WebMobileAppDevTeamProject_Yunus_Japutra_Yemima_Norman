@@ -50,7 +50,7 @@ export const StoreProvider = ({ children }) => {
 
     Promise.all([
       api.getProducts(),
-      api.getOrders(localStorage.getItem('finish_line_role')),
+      api.getOrders(localStorage.getItem('finish_line_role')).catch(() => []),
       api.getMessages().catch(() => [])
     ]).then(([products, remoteOrders, remoteMessages]) => {
       if (!active) return;
