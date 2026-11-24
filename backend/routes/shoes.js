@@ -1,21 +1,15 @@
 const express = require('express');
 const db = require('../database');
 const { requireAdmin } = require('../middleware/auth');
+const { parseSizes, isValidSize } = require('../lib/sizes');
 
 const router = express.Router();
 
-// Helper to format shoe record for API response
-function formatShoe(row) {
-  if (!row) return null;
-  let parsedSizes = [8, 9, 10, 11, 12];
-  if (row.sizes) {
-    try {
-      parsedSizes = typeof row.sizes === 'string' ? JSON.parse(row.sizes) : row.sizes;
-    } catch {
-      parsedSizes = [8, 9, 10, 11, 12];
-    }
-  }
+const DEFAULT_SIZES = [8, 9, 10, 11, 12];
 
+// Shape of a shoe in every API response.
+function formatShoe(row) {
+  const sizes = parseSizes(row.sizes);
   return {
     id: row.id,
     name: row.name,
@@ -23,15 +17,39 @@ function formatShoe(row) {
     price: Number(row.price),
     category: row.category,
     stock: Number(row.stock),
-    image_url: row.image_url,
-    image: row.image_url, // For compatibility with frontend image rendering
+    image_url: row.image_url || null,
+    image: row.image_url || null, // same value, kept for the web app's older code
     description: row.description || '',
-    sizes: parsedSizes,
+    sizes: sizes.length > 0 ? sizes : DEFAULT_SIZES,
     colors: ['Standard', 'Alternate']
   };
 }
 
-// GET /api/shoes - Fetch all shoes with optional search & category filter
+// Pictures are never stored in the database or on the server's disk.
+// The database keeps only an address: a full https:// URL, or /images/... for the
+// sample pictures that ship with the code (backend/public/images).
+function checkImageUrl(value) {
+  if (value === undefined || value === null || value === '') return { ok: true, value: null };
+  if (typeof value === 'string' && (value.startsWith('https://') || value.startsWith('/images/'))) {
+    return { ok: true, value: value.trim() };
+  }
+  return { ok: false, error: 'image_url must be an https:// address (uploading files is not supported).' };
+}
+
+function checkSizes(value) {
+  if (value === undefined) return { ok: true, value: undefined };
+  const sizes = Array.isArray(value) ? value : parseSizes(value);
+  if (sizes.length === 0 || !sizes.every(isValidSize)) {
+    return { ok: false, error: 'sizes must be a list of US sizes between 3 and 16, e.g. [8, 8.5, 9].' };
+  }
+  return { ok: true, value: JSON.stringify([...new Set(sizes.map(Number))].sort((a, b) => a - b)) };
+}
+
+function isNonNegativeNumber(value) {
+  return value !== '' && value !== null && Number.isFinite(Number(value)) && Number(value) >= 0;
+}
+
+// GET /api/shoes?search=&category=&sort= — public catalogue
 router.get('/', (req, res) => {
   const { search, category, sort } = req.query;
 
@@ -39,148 +57,124 @@ router.get('/', (req, res) => {
     let query = 'SELECT * FROM shoes WHERE 1=1';
     const params = [];
 
-    if (search && search.trim()) {
+    if (typeof search === 'string' && search.trim()) {
       query += ' AND (name LIKE ? OR brand LIKE ? OR description LIKE ?)';
       const term = `%${search.trim()}%`;
       params.push(term, term, term);
     }
 
-    if (category && category.trim().toLowerCase() !== 'all') {
+    if (typeof category === 'string' && category.trim() && category.trim().toLowerCase() !== 'all') {
       query += ' AND LOWER(category) = LOWER(?)';
       params.push(category.trim());
     }
 
-    if (sort === 'price-asc') {
-      query += ' ORDER BY price ASC';
-    } else if (sort === 'price-desc') {
-      query += ' ORDER BY price DESC';
-    } else if (sort === 'name') {
-      query += ' ORDER BY name ASC';
-    } else {
-      query += ' ORDER BY id ASC';
-    }
+    if (sort === 'price-asc') query += ' ORDER BY price ASC';
+    else if (sort === 'price-desc') query += ' ORDER BY price DESC';
+    else if (sort === 'name') query += ' ORDER BY name ASC';
+    else query += ' ORDER BY id ASC';
 
-    const rows = db.prepare(query).all(...params);
-    const shoes = rows.map(formatShoe);
-    return res.json(shoes);
+    return res.json(db.prepare(query).all(...params).map(formatShoe));
   } catch (err) {
     console.error('Fetch shoes error:', err);
     return res.status(500).json({ error: 'Failed to retrieve shoes catalogue.' });
   }
 });
 
-// GET /api/shoes/:id - Fetch single shoe by ID
+// GET /api/shoes/:id — public detail
 router.get('/:id', (req, res) => {
-  try {
-    const row = db.prepare('SELECT * FROM shoes WHERE id = ?').get(req.params.id);
-    if (!row) {
-      return res.status(404).json({ error: 'Shoe not found.' });
-    }
-    return res.json(formatShoe(row));
-  } catch (err) {
-    console.error('Fetch shoe details error:', err);
-    return res.status(500).json({ error: 'Failed to retrieve shoe details.' });
+  const row = db.prepare('SELECT * FROM shoes WHERE id = ?').get(req.params.id);
+  if (!row) {
+    return res.status(404).json({ error: 'Shoe not found.' });
   }
+  return res.json(formatShoe(row));
 });
 
-// POST /api/shoes - Admin: Add new shoe
+// POST /api/shoes — administrators add a shoe
 router.post('/', requireAdmin, (req, res) => {
-  const {
-    id,
-    name,
-    brand = 'Finish Line',
-    price,
-    category,
-    stock = 0,
-    image_url,
-    image,
-    description = '',
-    sizes = [8, 9, 10, 11, 12]
-  } = req.body;
+  const { name, brand = 'Finish Line', price, category, stock = 0, description = '' } = req.body;
 
-  if (!name || price === undefined || !category) {
-    return res.status(400).json({ error: 'Name, price, and category are required.' });
+  if (!name || !category || !isNonNegativeNumber(price) || !isNonNegativeNumber(stock)) {
+    return res.status(400).json({ error: 'Name, category, a price and a stock of 0 or more are required.' });
   }
 
-  const shoeId = id || `s${Date.now()}`;
-  const finalImage = image_url || image || '/assets/images/aeroglide.jpg';
-  const serializedSizes = Array.isArray(sizes) ? JSON.stringify(sizes) : (sizes || JSON.stringify([8, 9, 10, 11, 12]));
+  const image = checkImageUrl(req.body.image_url ?? req.body.image);
+  if (!image.ok) return res.status(400).json({ error: image.error });
+
+  const sizes = checkSizes(req.body.sizes ?? DEFAULT_SIZES);
+  if (!sizes.ok) return res.status(400).json({ error: sizes.error });
+
+  const id = `s${Date.now()}`;
 
   try {
     db.prepare(`
       INSERT INTO shoes (id, name, brand, price, category, stock, image_url, description, sizes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      shoeId,
-      name,
-      brand,
-      Number(price),
-      category,
-      Number(stock),
-      finalImage,
-      description,
-      serializedSizes
+      id, String(name).trim(), String(brand), Number(price), String(category),
+      Math.floor(Number(stock)), image.value, String(description), sizes.value
     );
-
-    const created = db.prepare('SELECT * FROM shoes WHERE id = ?').get(shoeId);
-    return res.status(201).json(formatShoe(created));
+    return res.status(201).json(formatShoe(db.prepare('SELECT * FROM shoes WHERE id = ?').get(id)));
   } catch (err) {
     console.error('Add shoe error:', err);
     return res.status(500).json({ error: 'Failed to add shoe to catalogue.' });
   }
 });
 
-// PUT /api/shoes/:id - Admin: Update shoe stock, price, details
+// PUT /api/shoes/:id — administrators change any field
 router.put('/:id', requireAdmin, (req, res) => {
-  const { id } = req.params;
+  const existing = db.prepare('SELECT * FROM shoes WHERE id = ?').get(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Shoe not found.' });
+  }
+
+  const body = req.body;
+  if (body.price !== undefined && !isNonNegativeNumber(body.price)) {
+    return res.status(400).json({ error: 'Price must be a number of 0 or more.' });
+  }
+  if (body.stock !== undefined && !isNonNegativeNumber(body.stock)) {
+    return res.status(400).json({ error: 'Stock must be a number of 0 or more.' });
+  }
+
+  const imageInput = body.image_url !== undefined ? body.image_url : body.image;
+  const image = imageInput === undefined ? { ok: true, value: existing.image_url } : checkImageUrl(imageInput);
+  if (!image.ok) return res.status(400).json({ error: image.error });
+
+  const sizes = checkSizes(body.sizes);
+  if (!sizes.ok) return res.status(400).json({ error: sizes.error });
 
   try {
-    const existing = db.prepare('SELECT * FROM shoes WHERE id = ?').get(id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Shoe not found.' });
-    }
-
-    const name = req.body.name !== undefined ? req.body.name : existing.name;
-    const brand = req.body.brand !== undefined ? req.body.brand : existing.brand;
-    const price = req.body.price !== undefined ? Number(req.body.price) : existing.price;
-    const category = req.body.category !== undefined ? req.body.category : existing.category;
-    const stock = req.body.stock !== undefined ? Number(req.body.stock) : existing.stock;
-    const image_url = req.body.image_url || req.body.image || existing.image_url;
-    const description = req.body.description !== undefined ? req.body.description : existing.description;
-    const sizes = req.body.sizes !== undefined
-      ? (Array.isArray(req.body.sizes) ? JSON.stringify(req.body.sizes) : req.body.sizes)
-      : existing.sizes;
-
     db.prepare(`
       UPDATE shoes
       SET name = ?, brand = ?, price = ?, category = ?, stock = ?, image_url = ?, description = ?, sizes = ?
       WHERE id = ?
-    `).run(name, brand, price, category, stock, image_url, description, sizes, id);
-
-    const updated = db.prepare('SELECT * FROM shoes WHERE id = ?').get(id);
-    return res.json(formatShoe(updated));
+    `).run(
+      body.name !== undefined ? String(body.name) : existing.name,
+      body.brand !== undefined ? String(body.brand) : existing.brand,
+      body.price !== undefined ? Number(body.price) : existing.price,
+      body.category !== undefined ? String(body.category) : existing.category,
+      body.stock !== undefined ? Math.floor(Number(body.stock)) : existing.stock,
+      image.value,
+      body.description !== undefined ? String(body.description) : existing.description,
+      sizes.value !== undefined ? sizes.value : existing.sizes,
+      req.params.id
+    );
+    return res.json(formatShoe(db.prepare('SELECT * FROM shoes WHERE id = ?').get(req.params.id)));
   } catch (err) {
     console.error('Update shoe error:', err);
     return res.status(500).json({ error: 'Failed to update shoe.' });
   }
 });
 
-// DELETE /api/shoes/:id - Admin: Delete shoe
+// DELETE /api/shoes/:id — administrators remove a shoe
 router.delete('/:id', requireAdmin, (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const existing = db.prepare('SELECT * FROM shoes WHERE id = ?').get(id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Shoe not found.' });
-    }
-
-    db.prepare('DELETE FROM shoes WHERE id = ?').run(id);
-    return res.status(200).json({ message: 'Shoe deleted successfully.', id });
-  } catch (err) {
-    console.error('Delete shoe error:', err);
-    return res.status(500).json({ error: 'Failed to delete shoe.' });
+  const existing = db.prepare('SELECT id FROM shoes WHERE id = ?').get(req.params.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Shoe not found.' });
   }
+
+  db.prepare('DELETE FROM shoes WHERE id = ?').run(req.params.id);
+  return res.json({ message: 'Shoe deleted successfully.', id: req.params.id });
 });
 
 module.exports = router;
+module.exports.formatShoe = formatShoe;

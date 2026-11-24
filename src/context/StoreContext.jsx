@@ -1,205 +1,221 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { initialShoes } from '../data/data';
-import { api, API_ENABLED } from '../api/api';
+import { api, API_ENABLED, resolveImage } from '../api/api';
+import { useAuth } from './AuthContext';
+import { sizeLabel } from '../utils/sizes';
 
 const StoreContext = createContext();
 
 export const useStore = () => useContext(StoreContext);
 
+const loadLocal = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+// Offline demo only: bundled pictures get a new file name on every build, so re-apply them.
+const seededImages = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe.image]));
+const withSeedImages = list => list.map(item => (seededImages[item.id] ? { ...item, image: seededImages[item.id] } : item));
+
+const welcomeMessage = { id: 'welcome', sender: 'admin', text: 'Welcome to Finishline support. How can we help?', time: new Date().toISOString() };
+
+/*
+  Two modes:
+  - API mode (VITE_API_URL set, or `npm run dev`): shoes, orders and messages come from the
+    server after login. The server is the only source of truth; failures are shown, not hidden.
+  - Offline demo (a static build without an API): everything lives in localStorage, as in Week 6.
+  The bag, the wishlist and the demo wallet stay in localStorage in both modes.
+*/
 export const StoreProvider = ({ children }) => {
-  const [inventory, setInventory] = useState(() => {
-    const saved = localStorage.getItem('finish_line_inventory');
-    if (!saved) return initialShoes;
-    const savedInventory = JSON.parse(saved);
-    const seededImages = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe.image]));
-    return savedInventory.map(shoe => seededImages[shoe.id] ? { ...shoe, image: seededImages[shoe.id], brand: 'Finish Line' } : shoe);
-  });
-  
-  const [cart, setCart] = useState(() => {
-    const saved = localStorage.getItem('finish_line_cart');
-    if (!saved) return [];
-    const seededImages = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe.image]));
-    return JSON.parse(saved).map(item => seededImages[item.id] ? { ...item, image: seededImages[item.id], brand: 'Finish Line' } : item);
-  });
-  
-  const [wishlist, setWishlist] = useState(() => {
-    const saved = localStorage.getItem('finish_line_wishlist');
-    if (!saved) return [];
-    const seededImages = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe.image]));
-    return JSON.parse(saved).map(item => seededImages[item.id] ? { ...item, image: seededImages[item.id], brand: 'Finish Line' } : item);
-  });
-  
-  const [orders, setOrders] = useState(() => {
-    const saved = localStorage.getItem('finish_line_orders');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'administrator';
+  const userId = user?.id;
 
+  const [inventory, setInventory] = useState(() => (API_ENABLED ? [] : withSeedImages(loadLocal('finish_line_inventory', initialShoes))));
+  const [orders, setOrders] = useState(() => (API_ENABLED ? [] : loadLocal('finish_line_orders', [])));
+  const [messages, setMessages] = useState(() => (API_ENABLED ? [] : loadLocal('finish_line_messages', [welcomeMessage])));
+  const [cart, setCart] = useState(() => withSeedImages(loadLocal('finish_line_cart', [])));
+  const [wishlist, setWishlist] = useState(() => withSeedImages(loadLocal('finish_line_wishlist', [])));
   const [wallet, setWallet] = useState(() => Number(localStorage.getItem('finish_line_wallet') || 0));
-  const [messages, setMessages] = useState(() => {
-    const saved = localStorage.getItem('finish_line_messages');
-    return saved ? JSON.parse(saved) : [{ id: 'welcome', sender: 'admin', text: 'Welcome to Finishline support. How can we help?', time: new Date().toISOString() }];
-  });
-  const [apiConnected, setApiConnected] = useState(false);
-  const [apiLoading, setApiLoading] = useState(API_ENABLED);
 
-  useEffect(() => {
-    let active = true;
-    if (!API_ENABLED) {
-      return undefined;
+  // 'loading' | 'ready' | 'error' | 'offline'
+  const [apiStatus, setApiStatus] = useState(API_ENABLED ? 'loading' : 'offline');
+  const [apiError, setApiError] = useState('');
+
+  // Load everything this user may see. Orders: the server decides whose they are.
+  const reload = useCallback(async () => {
+    if (!API_ENABLED) return;
+    if (!userId) {
+      // Logged out: forget the previous user's data.
+      setOrders([]);
+      setMessages([]);
+      return;
     }
-
-    Promise.all([
-      api.getProducts(),
-      api.getOrders(localStorage.getItem('finish_line_role')).catch(() => []),
-      api.getMessages().catch(() => [])
-    ]).then(([products, remoteOrders, remoteMessages]) => {
-      if (!active) return;
-      const seeded = Object.fromEntries(initialShoes.map(shoe => [shoe.id, shoe]));
-      if (Array.isArray(products) && products.length > 0) {
-        setInventory(products.map(product => ({ ...seeded[product.id], ...product })));
-      }
-      if (Array.isArray(remoteOrders)) {
-        setOrders(remoteOrders);
-      }
-      if (Array.isArray(remoteMessages) && remoteMessages.length > 0) {
-        setMessages(remoteMessages);
-      }
-      setApiConnected(true);
-    }).catch(() => {
-      if (active) setApiConnected(false);
-    }).finally(() => {
-      if (active) setApiLoading(false);
-    });
-    return () => { active = false; };
-  }, []);
+    setApiStatus('loading');
+    setApiError('');
+    try {
+      const [products, remoteOrders, remoteMessages] = await Promise.all([
+        api.getProducts(),
+        api.getOrders(isAdmin),
+        api.getMessages()
+      ]);
+      setInventory(products);
+      setOrders([...remoteOrders].reverse()); // the screens expect oldest first
+      setMessages(remoteMessages);
+      setApiStatus('ready');
+    } catch (err) {
+      setApiError(err.message);
+      setApiStatus('error');
+    }
+  }, [userId, isAdmin]);
 
   useEffect(() => {
-    localStorage.setItem('finish_line_inventory', JSON.stringify(inventory));
-  }, [inventory]);
+    reload();
+  }, [reload]);
+
+  // A failed change is reported on screen, then the real data is loaded again.
+  const fail = useCallback(err => {
+    setApiError(err.message);
+    reload();
+  }, [reload]);
 
   useEffect(() => {
     localStorage.setItem('finish_line_cart', JSON.stringify(cart));
   }, [cart]);
-
   useEffect(() => {
     localStorage.setItem('finish_line_wishlist', JSON.stringify(wishlist));
   }, [wishlist]);
-
   useEffect(() => {
+    localStorage.setItem('finish_line_wallet', wallet.toString());
+  }, [wallet]);
+  useEffect(() => {
+    if (API_ENABLED) return;
+    localStorage.setItem('finish_line_inventory', JSON.stringify(inventory));
     localStorage.setItem('finish_line_orders', JSON.stringify(orders));
-  }, [orders]);
+    localStorage.setItem('finish_line_messages', JSON.stringify(messages));
+  }, [inventory, orders, messages]);
 
-  useEffect(() => localStorage.setItem('finish_line_wallet', wallet.toString()), [wallet]);
-  useEffect(() => localStorage.setItem('finish_line_messages', JSON.stringify(messages)), [messages]);
+  /* ---------- Admin ---------- */
 
-  // Admin Methods
-  const addShoe = (shoe) => {
-    const localShoe = { ...shoe, id: 's' + Date.now() };
-    setInventory(current => [...current, localShoe]);
-    if (apiConnected) api.addProduct(localShoe, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
-  };
-
-  const updateShoe = (id, updates) => {
-    setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, ...updates } : shoe));
-    if (apiConnected) api.updateProduct(id, updates, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
-  };
-
-  const deleteShoe = (id) => {
-    setInventory(current => current.filter(s => s.id !== id));
-    if (apiConnected) api.deleteProduct(id, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
-  };
-
-  // This guard protects the shared mutation in the frontend demo; the backend repeats it server-side.
-  const updateProductImage = (id, image) => {
-    if (localStorage.getItem('finish_line_role') !== 'administrator') return false;
-    const persist = (nextImage, remoteImage = image) => {
-      setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, image: nextImage } : shoe));
-      setCart(current => current.map(item => item.id === id ? { ...item, image: nextImage } : item));
-      setWishlist(current => current.map(item => item.id === id ? { ...item, image: nextImage } : item));
-      if (apiConnected) api.updateProductImage(id, remoteImage, localStorage.getItem('finish_line_role')).then(product => {
-        setInventory(current => current.map(shoe => shoe.id === id ? { ...shoe, image: product.image } : shoe));
-      }).catch(() => setApiConnected(false));
-    };
-    if (image instanceof File) {
-      const reader = new FileReader();
-      reader.onload = () => persist(String(reader.result), image);
-      reader.readAsDataURL(image);
-    } else {
-      persist(image);
+  const addShoe = async shoe => {
+    if (!API_ENABLED) {
+      setInventory(current => [...current, { ...shoe, id: 's' + Date.now(), image: shoe.image_url || null }]);
+      return;
     }
+    const created = await api.addProduct(shoe); // errors go back to the Add Shoe form
+    setInventory(current => [...current, created]);
+  };
+
+  // The inventory table calls this on every key press, so wait until typing pauses
+  // and send one PUT with all the changed fields.
+  const pendingUpdates = useRef({});
+  const updateShoe = (id, updates) => {
+    setInventory(current => current.map(shoe => (shoe.id === id ? { ...shoe, ...updates } : shoe)));
+    if (!API_ENABLED) return;
+    const pending = pendingUpdates.current[id] || { fields: {} };
+    clearTimeout(pending.timer);
+    pending.fields = { ...pending.fields, ...updates };
+    pending.timer = setTimeout(() => {
+      delete pendingUpdates.current[id];
+      api.updateProduct(id, pending.fields).catch(fail);
+    }, 500);
+    pendingUpdates.current[id] = pending;
+  };
+
+  const deleteShoe = id => {
+    setInventory(current => current.filter(shoe => shoe.id !== id));
+    if (API_ENABLED) api.deleteProduct(id).catch(fail);
+  };
+
+  // imageUrl is an https:// address. Files are not uploaded: the database keeps only the address.
+  const updateProductImage = (id, imageUrl) => {
+    if (!isAdmin) return false;
+    const image = resolveImage(imageUrl);
+    const apply = list => list.map(item => (item.id === id ? { ...item, image, image_url: imageUrl } : item));
+    setInventory(apply);
+    setCart(apply);
+    setWishlist(apply);
+    if (API_ENABLED) api.updateProduct(id, { image_url: imageUrl }).catch(fail);
     return true;
   };
-  
+
   const updateOrderStatus = (orderId, status) => {
-    setOrders(current => current.map(order => order.id === orderId ? { ...order, status } : order));
-    if (apiConnected) api.updateOrderStatus(orderId, status, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
+    setOrders(current => current.map(order => (order.id === orderId ? { ...order, status } : order)));
+    if (API_ENABLED) api.updateOrderStatus(orderId, status).catch(fail);
   };
 
-  // Client Methods
-  const addToCart = (shoe, size) => {
-    setCart(current => [...current, { ...shoe, selectedSize: size, cartId: Date.now() }]);
+  /* ---------- Client ---------- */
+
+  // sizes: { left, right } — or one number when both feet take the same size.
+  const addToCart = (shoe, sizes) => {
+    const { left, right } = typeof sizes === 'object' ? sizes : { left: sizes, right: sizes };
+    setCart(current => [
+      ...current,
+      { ...shoe, leftSize: left, rightSize: right, selectedSize: sizeLabel(left, right), cartId: `${Date.now()}-${current.length}` }
+    ]);
   };
 
-  const removeFromCart = (cartId) => {
-    setCart(current => current.filter(item => item.cartId !== cartId));
-  };
-
+  const removeFromCart = cartId => setCart(current => current.filter(item => item.cartId !== cartId));
   const clearCart = () => setCart([]);
 
-  const toggleWishlist = (shoe) => {
-    if (wishlist.find(item => item.id === shoe.id)) {
-      setWishlist(current => current.filter(item => item.id !== shoe.id));
-    } else {
-      setWishlist(current => [...current, shoe]);
-    }
+  const toggleWishlist = shoe => {
+    setWishlist(current => (current.some(item => item.id === shoe.id)
+      ? current.filter(item => item.id !== shoe.id)
+      : [...current, shoe]));
   };
 
   const addFunds = amount => setWallet(current => current + Number(amount));
 
   const sendMessage = (text, sender) => {
     if (!text.trim()) return;
-    const newMsg = { id: Date.now(), sender, text: text.trim(), time: new Date().toISOString() };
-    setMessages(current => [...current, newMsg]);
-    if (apiConnected) {
-      api.sendMessage(text.trim(), sender).catch(() => setApiConnected(false));
-    }
+    setMessages(current => [...current, { id: Date.now(), sender, text: text.trim(), time: new Date().toISOString() }]);
+    if (API_ENABLED) api.sendMessage(text.trim()).catch(fail);
   };
 
-  const checkout = (customerInfo) => {
+  // Places the order and returns it. Throws with the server's message (e.g. a size sold out),
+  // so the checkout form can show it.
+  const checkout = async customerInfo => {
     if (cart.length === 0) return null;
-    
-    const newOrder = {
-      id: 'ORD-' + Math.floor(Math.random() * 1000000),
+
+    if (API_ENABLED) {
+      const order = await api.createOrder(customerInfo, cart);
+      setOrders(current => [...current, order]);
+      clearCart();
+      api.getProducts().then(setInventory).catch(() => {}); // stock went down
+      return order;
+    }
+
+    const order = {
+      id: 'ORD-' + Math.floor(100000 + Math.random() * 900000),
       date: new Date().toISOString(),
       customer: customerInfo,
       items: cart,
       total: cart.reduce((sum, item) => sum + Number(item.price), 0),
       status: 'Pending'
     };
-    
-    // Deduct stock
-    const updatedInventory = [...inventory];
-    cart.forEach(cartItem => {
-      const idx = updatedInventory.findIndex(s => s.id === cartItem.id);
-      if (idx !== -1 && updatedInventory[idx].stock > 0) {
-        updatedInventory[idx] = { ...updatedInventory[idx], stock: updatedInventory[idx].stock - 1 };
-      }
-    });
-    
-    setInventory(updatedInventory);
-    setOrders(current => [...current, newOrder]);
-    if (apiConnected) api.createOrder(customerInfo, cart, localStorage.getItem('finish_line_role')).catch(() => setApiConnected(false));
+    setInventory(current => current.map(shoe => {
+      const pairs = cart.filter(item => item.id === shoe.id).length;
+      return pairs ? { ...shoe, stock: Math.max(0, shoe.stock - pairs) } : shoe;
+    }));
+    setOrders(current => [...current, order]);
     clearCart();
-    return newOrder;
+    return order;
   };
 
   return (
-    <StoreContext.Provider value={{ 
+    <StoreContext.Provider value={{
       inventory, addShoe, updateShoe, deleteShoe, updateProductImage,
       cart, addToCart, removeFromCart, clearCart,
       wishlist, toggleWishlist,
       orders, checkout, updateOrderStatus,
-      wallet, addFunds, messages, sendMessage, apiConnected, apiLoading
+      wallet, addFunds, messages, sendMessage,
+      apiStatus, apiError, reload, dismissApiError: () => setApiError(''),
+      apiConnected: apiStatus === 'ready',
+      apiLoading: apiStatus === 'loading'
     }}>
       {children}
     </StoreContext.Provider>

@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import confetti from 'canvas-confetti';
 import {
-  ArrowUpRight, Check, CreditCard, Heart, MessageCircle, Package,
-  Plus, Pencil, Search, Send, Share2, ShoppingBag, Trash2, X, Sparkles
+  AlertTriangle, ArrowUpRight, Check, CreditCard, Heart, MessageCircle, Package,
+  Plus, Pencil, RefreshCw, Search, Send, Share2, ShoppingBag, Trash2, X, Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useStore } from '../context/StoreContext';
 import ProductImage from '../components/ProductImage';
 import EditImageModal from '../components/EditImageModal';
+import Modal from '../components/Modal';
+import SizePicker from '../components/SizePicker';
+import FitAdvisorModal from '../components/FitAdvisorModal';
+import { defaultSizes, sizeLabel } from '../utils/sizes';
 import { Link } from 'react-router-dom';
 
 const money = value => `$${Number(value || 0).toFixed(2)}`;
@@ -20,46 +23,27 @@ const EmptyState = ({ message }) => (
   </div>
 );
 
-/* ==========================================================
-   PORTAL MODAL COMPONENT
-   Mounted to document.body: Immune to ancestor transforms,
-   stays fixed to device screen and follows on scroll.
-   ========================================================== */
-const Modal = ({ children, onClose, className = '' }) => {
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+// Where the data comes from, shown in the page eyebrow.
+const statusLabel = apiStatus => ({
+  loading: 'LOADING FROM SERVER',
+  ready: 'LIVE DATABASE',
+  error: 'SERVER UNREACHABLE',
+  offline: 'OFFLINE DEMO MODE'
+}[apiStatus]);
 
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = originalOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [onClose]);
-
-  const baseClass = className.split(' ')[0] || 'default';
-
-  return createPortal(
-    <div
-      className={`modal-backdrop modal-${baseClass}`}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className={`modal-card ${className}`}
-        onClick={event => event.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>,
-    document.body
-  );
-};
+// Shown when a request failed. The data on screen is not silently replaced by local data.
+const ApiErrorBanner = ({ message, onRetry, onDismiss }) => (
+  <div className="api-error-banner" role="alert">
+    <AlertTriangle size={16} />
+    <span>{message}</span>
+    <button className="btn btn-light btn-sm" type="button" onClick={onRetry}>
+      <RefreshCw size={13} /> Retry
+    </button>
+    <button className="icon-button" type="button" onClick={onDismiss} aria-label="Dismiss error">
+      <X size={15} />
+    </button>
+  </div>
+);
 
 /* ==========================================================
    CHAT MODAL
@@ -161,8 +145,9 @@ const Chat = ({ isAdmin, messages, sendMessage, onClose }) => {
 /* ==========================================================
    PRODUCT DETAILS MODAL
    ========================================================== */
-const ProductDetails = ({ shoe, onClose, onAdd, onWishlist, wished }) => {
-  const [size, setSize] = useState(shoe.sizes[0] || '');
+const ProductDetails = ({ shoe, user, onClose, onAdd, onWishlist, wished }) => {
+  // Preselects the shopper's saved sizes (also a different size per foot) when this shoe has them.
+  const [sizes, setSizes] = useState(() => defaultSizes(shoe, user));
   const [showChart, setShowChart] = useState(false);
   const [shared, setShared] = useState(false);
 
@@ -210,27 +195,16 @@ const ProductDetails = ({ shoe, onClose, onAdd, onWishlist, wished }) => {
           </div>
         )}
 
-        <div className="size-grid">
-          {shoe.sizes.map(item => (
-            <button
-              key={item}
-              type="button"
-              className={String(size) === String(item) ? 'selected' : ''}
-              onClick={() => setSize(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
+        <SizePicker sizes={shoe.sizes} value={sizes} onChange={setSizes} />
 
         <div className="detail-actions">
           <button
             className="btn btn-primary"
-            disabled={!size || shoe.stock === 0}
-            onClick={() => onAdd(shoe, size)}
+            disabled={!sizes.left || !sizes.right || shoe.stock === 0}
+            onClick={() => onAdd(shoe, { left: sizes.left, right: sizes.right })}
           >
             <ShoppingBag size={16} />
-            {shoe.stock === 0 ? 'Sold Out' : `Add to Bag · US ${size}`}
+            {shoe.stock === 0 ? 'Sold Out' : `Add to Bag · US ${sizeLabel(sizes.left, sizes.right)}`}
           </button>
           <button
             className={`btn btn-light ${wished ? 'selected' : ''}`}
@@ -355,7 +329,7 @@ const CartDrawer = ({ cart, removeFromCart, onClose, onCheckout }) => {
 /* ==========================================================
    WISHLIST MODAL
    ========================================================== */
-const WishlistModal = ({ wishlist, toggleWishlist, onAddToCart, onClose }) => {
+const WishlistModal = ({ wishlist, user, toggleWishlist, onAddToCart, onClose }) => {
   return (
     <Modal onClose={onClose} className="wishlist-modal">
       <div className="modal-header">
@@ -396,7 +370,7 @@ const WishlistModal = ({ wishlist, toggleWishlist, onAddToCart, onClose }) => {
                     className="btn btn-primary btn-sm"
                     disabled={shoe.stock === 0}
                     onClick={() => {
-                      onAddToCart(shoe, shoe.sizes[0] || 9);
+                      onAddToCart(shoe, defaultSizes(shoe, user));
                       toggleWishlist(shoe);
                     }}
                     title="Move to shopping bag"
@@ -436,16 +410,25 @@ const WishlistModal = ({ wishlist, toggleWishlist, onAddToCart, onClose }) => {
 const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
   const [form, setForm] = useState({ name: '', address: '', card: '' });
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const total = cart.reduce((sum, item) => sum + Number(item.price), 0);
   const update = event => setForm({ ...form, [event.target.name]: event.target.value });
-  const submit = event => {
+  const submit = async event => {
     event.preventDefault();
+    if (busy) return; // one click = one order
     if (!form.name.trim() || !form.address.trim() || !form.card.trim()) {
       setError('Complete your name, delivery address, and payment card before placing the order.');
       return;
     }
     setError('');
-    onSubmit(form);
+    setBusy(true);
+    try {
+      await onSubmit(form);
+    } catch (err) {
+      setError(err.message); // e.g. "Size 9.5 (right foot) is not available"
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -523,8 +506,8 @@ const Checkout = ({ cart, wallet, onClose, onSubmit }) => {
 
         {error && <p className="form-error" role="alert">{error}</p>}
 
-        <button className="btn btn-primary full-button checkout-submit-btn" type="submit">
-          Authorize & Place Order · {money(total)} <Check size={16} />
+        <button className="btn btn-primary full-button checkout-submit-btn" type="submit" disabled={busy}>
+          {busy ? 'Placing your order…' : <>Authorize & Place Order · {money(total)} <Check size={16} /></>}
         </button>
       </form>
     </Modal>
@@ -593,7 +576,7 @@ const TopUp = ({ onClose, onTopUp }) => {
 /* ==========================================================
    ADMIN COMPONENT
    ========================================================== */
-const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProductImage, updateOrderStatus, onChat, apiConnected, apiLoading }) => {
+const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProductImage, updateOrderStatus, onChat, apiStatus, apiError, reload, dismissApiError }) => {
   const [tab, setTab] = useState('inventory');
   const [editingImage, setEditingImage] = useState(null);
   const lowStockShoes = inventory.filter(shoe => shoe.stock <= 12);
@@ -625,7 +608,7 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
     <main className="page-shell animate-fade-in">
       <header className="page-heading">
         <div>
-          <p className="eyebrow">CONTROL ROOM / 01</p>
+          <p className="eyebrow">CONTROL ROOM / 01 · {statusLabel(apiStatus)}</p>
           <h1>Store <em>command.</em></h1>
           <p className="muted">Manage live styles, fulfill client orders, and respond via live chat.</p>
         </div>
@@ -641,6 +624,8 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
           </Link>
         </div>
       </header>
+
+      {apiError && <ApiErrorBanner message={apiError} onRetry={reload} onDismiss={dismissApiError} />}
 
       <section className="stat-grid">
         <div className="stat-card">
@@ -778,8 +763,13 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
               <p className="eyebrow">COLLECTION / {inventory.length}</p>
               <h2>Inventory Registry</h2>
             </div>
-            <span className="status-dot">
-              <i /> {apiLoading ? 'Checking database...' : apiConnected ? 'Database connected' : 'Offline demo mode: changes sync locally'}
+            <span className={`status-dot status-${apiStatus}`}>
+              <i /> {{
+                loading: 'Loading from the server…',
+                ready: 'Live database: changes are saved on the server',
+                error: 'Server unreachable: changes are not saved',
+                offline: 'Offline demo mode: changes stay in this browser'
+              }[apiStatus]}
             </span>
           </div>
 
@@ -792,7 +782,9 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
               <span />
             </div>
 
-            {inventory.length === 0 ? (
+            {apiStatus === 'loading' && inventory.length === 0 ? (
+              <EmptyState message="Loading the inventory from the server…" />
+            ) : inventory.length === 0 ? (
               <EmptyState message="Inventory is empty. Add a shoe to begin." />
             ) : (
               inventory.map(shoe => (
@@ -868,16 +860,29 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
                   <div>
                     <strong>{order.customer.name}</strong>
                     <small>{order.items?.length || 1} item(s) · {order.customer.address}</small>
+                    <ul className="order-lines">
+                      {(order.items || []).map((item, index) => {
+                        const split = item.split_size || (item.leftSize != null && item.leftSize !== item.rightSize);
+                        return (
+                          <li key={`${item.id}-${index}`}>
+                            {item.name} · US {item.selectedSize}{item.quantity > 1 ? ` × ${item.quantity}` : ''}
+                            {split && <em className="fit-badge">Different size per foot</em>}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   </div>
                   <strong>{money(order.total)}</strong>
                   <select
                     value={order.status}
                     onChange={event => updateOrderStatus(order.id, event.target.value)}
+                    aria-label={`Status of order ${order.id}`}
                   >
                     <option>Pending</option>
                     <option>Processing</option>
                     <option>Shipped</option>
                     <option>Delivered</option>
+                    <option>Cancelled</option>
                   </select>
                 </div>
               ))}
@@ -893,9 +898,9 @@ const Admin = ({ inventory, orders, messages, updateShoe, deleteShoe, updateProd
    CLIENT DASHBOARD COMPONENT
    ========================================================== */
 const Client = ({
-  inventory, wishlist, toggleWishlist, cart, addToCart,
+  user, inventory, wishlist, toggleWishlist, cart, addToCart,
   removeFromCart, orders, wallet, addFunds, checkout,
-  messages, sendMessage, apiConnected, apiLoading
+  messages, sendMessage, apiStatus, apiError, reload, dismissApiError
 }) => {
   const [sortBy, setSortBy] = useState('default');
   const [query, setQuery] = useState('');
@@ -906,6 +911,7 @@ const Client = ({
   const [showCheckout, setShowCheckout] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showAdvisor, setShowAdvisor] = useState(false);
   const [completed, setCompleted] = useState(null);
 
   // Listen to Navbar triggers
@@ -937,8 +943,9 @@ const Client = ({
     return 0;
   });
 
-  const placeOrder = (info) => {
-    const order = checkout(info);
+  // Errors (sold out, server asleep) are thrown back to the checkout form, which shows them.
+  const placeOrder = async (info) => {
+    const order = await checkout(info);
     if (!order) return;
 
     try {
@@ -977,12 +984,20 @@ const Client = ({
     <main className="page-shell animate-fade-in">
       <header className="page-heading client-heading">
         <div>
-          <p className="eyebrow">THE NEW SEASON / 2026 · {apiLoading ? 'CHECKING DATABASE' : apiConnected ? 'DATABASE CONNECTED' : 'OFFLINE DEMO MODE'}</p>
+          <p className="eyebrow">THE NEW SEASON / 2026 · {statusLabel(apiStatus)}</p>
           <h1>Find your <em>pace.</em></h1>
           <p className="muted">Engineered athletic footwear curated for speed, lifestyle, and everyday comfort.</p>
         </div>
 
         <div className="client-tools">
+          <button
+            className="btn btn-light tool-btn advisor-button"
+            onClick={() => setShowAdvisor(true)}
+            title="AI Fit Advisor: find shoes for both of your feet"
+          >
+            <Sparkles size={15} />
+            <span className="tool-btn-label">Fit Advisor</span>
+          </button>
           <button className="wallet-pill" onClick={() => setShowTopUp(true)} title="Simulated Wallet">
             <CreditCard size={15} />
             <span>{money(wallet)}</span>
@@ -1016,6 +1031,14 @@ const Client = ({
           </button>
         </div>
       </header>
+
+      {apiError && <ApiErrorBanner message={apiError} onRetry={reload} onDismiss={dismissApiError} />}
+
+      {user?.left_size != null && user.left_size !== user.right_size && (
+        <p className="fit-profile-note">
+          <Sparkles size={13} /> Your saved sizes: <strong>L {user.left_size} / R {user.right_size}</strong> — every product opens with them preselected.
+        </p>
+      )}
 
       <section className="stock-overview" aria-label="Stock overview">
         <div>
@@ -1073,7 +1096,11 @@ const Client = ({
 
       {/* Product Grid */}
       <section className="product-grid">
-        {sortedProducts.length === 0 ? (
+        {apiStatus === 'loading' && inventory.length === 0 ? (
+          <EmptyState message="Loading the collection from the server…" />
+        ) : apiStatus === 'error' && inventory.length === 0 ? (
+          <EmptyState message="The collection could not be loaded. Use Retry above." />
+        ) : sortedProducts.length === 0 ? (
           <EmptyState message="No styles match your search criteria. Try a different query." />
         ) : (
           sortedProducts.map(shoe => {
@@ -1190,6 +1217,7 @@ const Client = ({
       {selected && (
         <ProductDetails
           shoe={selected}
+          user={user}
           onClose={() => setSelected(null)}
           onAdd={(shoe, size) => {
             addToCart(shoe, size);
@@ -1216,6 +1244,7 @@ const Client = ({
       {showWishlist && (
         <WishlistModal
           wishlist={wishlist}
+          user={user}
           toggleWishlist={toggleWishlist}
           onAddToCart={(shoe, size) => {
             addToCart(shoe, size);
@@ -1259,6 +1288,17 @@ const Client = ({
           onClose={() => setShowChat(false)}
         />
       )}
+
+      {showAdvisor && (
+        <FitAdvisorModal
+          onClose={() => setShowAdvisor(false)}
+          onAddToCart={(shoe, sizes) => {
+            addToCart(shoe, sizes);
+            setShowAdvisor(false);
+            setShowCart(true);
+          }}
+        />
+      )}
     </main>
   );
 };
@@ -1287,7 +1327,7 @@ const Dashboard = () => {
     );
   }
 
-  return <Client {...store} />;
+  return <Client {...store} user={user} />;
 };
 
 export default Dashboard;

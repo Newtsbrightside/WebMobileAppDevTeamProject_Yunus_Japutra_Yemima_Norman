@@ -1,9 +1,11 @@
-# Finishline — Sneaker Store Web Application
+# Finishline — Sneaker Store (Web + Mobile + AI)
 
-**Course:** Web & Mobile Application Development (Midterm / Week 10 Milestone)  
+**Course:** Web & Mobile Application Development — Capstone  
 **Group:** 14  
-**Live Deployed App (GitHub Pages):** [https://newtsbrightside.github.io/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman/](https://newtsbrightside.github.io/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman/)  
-**GitHub Repository:** [https://github.com/Newtsbrightside/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman](https://github.com/Newtsbrightside/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman)
+**GitHub:** https://github.com/Newtsbrightside/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman  
+**Web app (GitHub Pages):** https://newtsbrightside.github.io/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman/  
+**Backend API (Render):** _add the URL after deploying_  
+**Mobile app:** Expo Go — see "Run the mobile app" below
 
 ---
 
@@ -18,143 +20,158 @@
 
 ---
 
-## 📖 Project Overview
+## 📖 What it does
 
-Finishline is a modern web application connecting sneaker shoppers and store administrators under a unified platform. 
-- **Shoppers (Clients):** Browse and search footwear, filter by category, inspect detailed size charts, manage wishlist and shopping bag, simulate wallet payments and checkout, review personal order history, and chat in real-time with customer support.
-- **Store Administrators:** Access the comprehensive "Store Command" dashboard featuring live revenue metrics, inventory stock controls, low-stock notifications, CRUD operations for shoes, order fulfillment status management, and a customer support inbox.
+- **Clients** (web and phone) browse shoes, order them — also with a **different size for each
+  foot** (e.g. left 9, right 9.5, still one pair) — see their own orders, save their foot sizes, and
+  ask the **AI Fit Advisor** which shoes fit both feet best.
+- **Administrators** (web) manage the catalogue and stock, see every order (orders with two sizes
+  are marked "Different size per foot"), update order status, and answer the support chat.
+- **One backend** (Express + libsql) serves both apps. The AI (OpenRouter) is called only by the
+  backend, so no key is ever inside an app.
 
-The application is built with a decoupled architecture:
-1. **Frontend:** React 19 + Vite (Single Page Application with Lucide icons, responsive design system, and canvas-confetti).
-2. **Backend:** Node.js + Express REST API with SQLite database (`better-sqlite3`), JWT authentication, and bcrypt password hashing.
-3. **Resilient Fallback:** The frontend operates seamlessly when connected to the live backend while preserving full `localStorage` fallback if offline or hosted statically on GitHub Pages.
-
----
-
-## 🛠️ Tech Stack & Directory Structure
+## 🛠️ Folders
 
 ```text
 .
-├── backend/                  # Node.js + Express + SQLite API server
-│   ├── database.js           # SQLite schema creation & seed data
-│   ├── server.js             # Express app entry point & route mounting
-│   ├── middleware/
-│   │   └── auth.js           # JWT verification & role-based access middleware
-│   ├── routes/
-│   │   ├── auth.js           # /api/auth routes (login, register, me)
-│   │   ├── shoes.js          # /api/shoes catalogue CRUD routes
-│   │   ├── orders.js         # /api/orders order placement & status routes
-│   │   └── messages.js       # /api/messages concierge support chat routes
-│   ├── .env.example          # Backend environment template
-│   └── package.json          # Backend dependencies
-├── src/                      # React 19 + Vite Web Application
-│   ├── api/api.js            # Unified API service with JWT auth & fallback
-│   ├── components/           # Navbar, modals, image handlers
-│   ├── context/              # AuthContext (JWT) & StoreContext
-│   ├── data/                 # Initial mock data and seeds
-│   └── pages/                # Login, Client/Admin Dashboard, AddShoe
-├── public/                   # Static icons and assets
-├── package.json              # Root scripts (concurrent full-stack runner)
-├── vite.config.js            # Vite configuration with /api proxy to port 3000
-└── README.md
+├── AGENTS.md            ← rules for AI coding agents (read first)
+├── PROGRESS.md          ← hand-over note: done / next / known bugs / decisions
+├── CHECKLIST_STATUS.md  ← capstone checklist A–J status
+├── backend/             ← Express API (Render)
+│   ├── server.js        ← app, CORS, routes, /images
+│   ├── database.js      ← opens SQLite file or Turso, creates tables, adds new columns
+│   ├── seed.js          ← npm run seed (deletes everything, inserts sample data)
+│   ├── lib/sizes.js     ← shoe-size helpers (left/right foot)
+│   ├── middleware/auth.js
+│   ├── routes/          ← auth, shoes, orders, messages, ai
+│   ├── public/images/   ← the 4 sample shoe pictures
+│   └── .env.example
+├── src/                 ← web app (React + Vite, GitHub Pages)
+├── .env.example         ← VITE_API_URL for the web app
+├── mobile-app/          ← Expo SDK 58 app (client role)
+│   ├── app/             ← screens (Expo Router): (tabs)/index, advisor, orders, account,
+│   │                      shoe/[id], order/[id], login
+│   ├── lib/             ← api.js, auth.js, session.js (secure token), sizes.js
+│   ├── components/
+│   └── .env.example     ← EXPO_PUBLIC_API_URL
+└── docs/design-doc-week13.md  ← Week 13 text for the Design Document (§3, §4, §5, §8)
 ```
+
+`server/` is the old Week 6 demo server and is not used.
 
 ---
 
-## 🚀 Getting Started (Run Locally)
+## 🚀 Run it on your laptop
 
-### 1. Prerequisites
-- [Node.js](https://nodejs.org/) (v18 or higher recommended; compatible with Node 20–26)
-- `npm` (bundled with Node.js)
+Prerequisites: Node.js 20 or newer, npm, and the **Expo Go** app on your phone.
 
-### 2. Clone the Repository
-```bash
-git clone https://github.com/Newtsbrightside/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman.git
-cd WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman
-```
+### 1. Backend
 
-### 3. Install Dependencies
-You can install dependencies for both root (frontend) and backend:
-
-```bash
-# Install frontend dependencies
-npm install
-
-# Install backend dependencies
-cd backend && npm install && cd ..
-```
-
-### 4. Running the Application
-
-#### Option A: Run Both Concurrently (Recommended)
-Run both the Vite frontend (`http://localhost:5173`) and Express backend (`http://localhost:3000`) in parallel using a single terminal command:
-```bash
-npm run dev:full
-```
-
-#### Option B: Run Services Separately
-
-**Terminal 1 — Backend API:**
 ```bash
 cd backend
-npm run dev
-# Server will run at http://localhost:3000
+npm install
+cp .env.example .env      # then set JWT_SECRET (see the comment in the file)
+npm run seed              # sample data: 3 users, 4 shoes (deletes local data!)
+npm run dev               # http://localhost:3000
 ```
 
-**Terminal 2 — Frontend Application:**
+Leave `TURSO_DATABASE_URL` empty on your laptop: the server then uses the local file
+`backend/finishline.db`, and `npm run seed` can never touch production.
+
+### 2. Web app (new terminal, repository root)
+
 ```bash
-npm run dev
-# Web app will run at http://localhost:5173
+npm install
+cp .env.example .env      # VITE_API_URL=http://localhost:3000
+npm run dev               # http://localhost:5173/WebMobileAppDevTeamProject_Yunus_Japutra_Yemima_Norman/
 ```
 
----
+`npm run dev:full` starts the backend and the web app together.
 
-## 🔐 Demo Accounts
+### 3. Mobile app (new terminal)
 
-| Role | Username | Password | Notes |
-|---|---|---|---|
-| **Administrator** | `admin` | `password` | Access to Store Command, inventory CRUD, order status updates, and support inbox |
-| **Client** | `client` | `password` | Access to footwear catalogue, wishlist, shopping bag, checkout, and live chat |
+```bash
+cd mobile-app
+npm install
+cp .env.example .env      # EXPO_PUBLIC_API_URL=http://<your laptop's Wi-Fi IP>:3000
+npx expo start            # scan the QR code with Expo Go (iPhone: Camera app)
+```
 
-*Note: New client accounts can also be created via the register endpoint or form.*
+The phone cannot reach `localhost` on your laptop: use the laptop's Wi-Fi IP (same Wi-Fi), or the
+deployed Render URL. After changing `.env`, restart `npx expo start`.
 
----
+### Demo accounts (from `npm run seed`)
 
-## 📡 API Endpoints (Week 10 Milestone)
+| Role | Username | Password |
+|---|---|---|
+| Administrator (web) | `admin` | `password` |
+| Client | `client` | `password` |
+| Client (to show "my orders" are private) | `client2` | `password` |
 
-All endpoints are hosted under `http://localhost:3000/api`:
-
-### 1. Authentication (`/api/auth`)
-| Method | Endpoint | Auth Required | Description | Request Body | Response |
-|---|---|---|---|---|---|
-| `POST` | `/api/auth/register` | No | Register new client account | `{ username, password, role? }` | `{ message, token, user }` (201) |
-| `POST` | `/api/auth/login` | No | Authenticate user & get JWT | `{ username, password }` | `{ message, token, user }` (200) |
-| `GET` | `/api/auth/me` | Bearer Token | Get current user profile | None | `{ user }` (200) |
-
-### 2. Shoes / Footwear Catalogue (`/api/shoes`)
-| Method | Endpoint | Auth Required | Description | Query / Request Body | Response |
-|---|---|---|---|---|---|
-| `GET` | `/api/shoes` | No | List shoes (with filters) | `?search=...&category=...&sort=...` | `[ { id, name, price, stock, ... } ]` |
-| `GET` | `/api/shoes/:id` | No | Get single shoe details | None | `{ shoe object }` (200) |
-| `POST` | `/api/shoes` | Admin (JWT) | Add new shoe to catalogue | `{ name, brand, price, category, stock, sizes, description, image_url }` | `{ created shoe }` (201) |
-| `PUT` | `/api/shoes/:id` | Admin (JWT) | Update shoe details/stock | `{ name?, price?, stock?, ... }` | `{ updated shoe }` (200) |
-| `DELETE` | `/api/shoes/:id` | Admin (JWT) | Remove shoe from inventory | None | `{ message, id }` (200) |
-
-### 3. Orders (`/api/orders`)
-| Method | Endpoint | Auth Required | Description | Request Body | Response |
-|---|---|---|---|---|---|
-| `POST` | `/api/orders` | Optional | Place an order (decrements stock in a transaction) | `{ customer, items: [{ id, quantity, selectedSize }] }` | `{ created order }` (201) |
-| `GET` | `/api/orders/mine` | Client (JWT) | Get personal order history | None | `[ { order with items } ]` (200) |
-| `GET` | `/api/orders` | Admin (JWT) | Get all customer orders | None | `[ { order with items } ]` (200) |
-| `PUT` | `/api/orders/:id/status`| Admin (JWT) | Update order status | `{ status: "Processing" / "Shipped" / "Delivered" / "Cancelled" }` | `{ updated order }` (200) |
-
-### 4. Support Messages (`/api/messages`)
-| Method | Endpoint | Auth Required | Description | Request Body | Response |
-|---|---|---|---|---|---|
-| `GET` | `/api/messages` | No | Fetch chat history | None | `[ { id, sender, sender_name, text, time } ]` |
-| `POST` | `/api/messages` | Optional | Send concierge message | `{ text, sender?, sender_name? }` | `{ created message }` (201) |
+New client accounts can be created in the phone app (Account → Create account).
 
 ---
 
-## 📄 License & Course Information
-This project is developed as part of the **Web & Mobile Application Development** curriculum at **Universitas Pelita Harapan (2026)**.
+## 📡 API
+
+Base URL: `http://localhost:3000` locally, the Render URL in production.
+"Logged in" = header `Authorization: Bearer <token>`. No token → 401, wrong role → 403.
+
+| Method | Path | Who | Body / query | Response |
+|---|---|---|---|---|
+| GET | `/api/health` | anyone | — | `{ status, database: "turso" \| "local-file" }` |
+| POST | `/api/auth/register` | anyone | `{ username, password }` | 201 `{ token, user }` (always a client) |
+| POST | `/api/auth/login` | anyone | `{ username, password }` | `{ token, user }` |
+| GET | `/api/auth/me` | logged in | — | `{ user }` incl. `left_size`, `right_size` |
+| PUT | `/api/auth/me/sizes` | logged in | `{ left_size, right_size }` (US sizes, or both `null`) | `{ user }` |
+| GET | `/api/shoes` | anyone | `?search=&category=&sort=price-asc\|price-desc\|name` | `[shoe]` |
+| GET | `/api/shoes/:id` | anyone | — | `shoe` |
+| POST | `/api/shoes` | admin | `{ name, category, price, stock, sizes, description, image_url }` | 201 `shoe` |
+| PUT | `/api/shoes/:id` | admin | any of the fields above | `shoe` |
+| DELETE | `/api/shoes/:id` | admin | — | `{ message, id }` |
+| POST | `/api/orders` | logged in | `{ customer: { name, address }, items: [{ id, quantity, left_size, right_size }] }` (or `selectedSize`) | 201 `order` |
+| GET | `/api/orders/mine` | logged in | — | the user's own orders |
+| GET | `/api/orders` | admin | — | all orders |
+| PUT | `/api/orders/:id/status` | admin | `{ status }` — Pending, Processing, Shipped, Delivered, Cancelled | `order` |
+| GET | `/api/messages` | logged in | — | support chat |
+| POST | `/api/messages` | logged in | `{ text }` | 201 `message` |
+| POST | `/api/ai/fit-advice` | logged in | `{ left_size, right_size, activity, notes }` | `{ ai_generated, model, summary, tips, picks }`; 503 `{ error, fallback_picks }` when the AI fails |
+
+A shoe: `{ id, name, brand, price, category, stock, image_url, description, sizes: [8, 8.5, 9] }`.
+An order item: `{ id, name, quantity, unit_price, left_size, right_size, split_size, selectedSize: "L 9 / R 9.5" }`.
+Prices and totals are computed by the server from the database.
+
+---
+
+## ☁️ Deployment
+
+Do it in this order. Secrets are copied into the dashboards, never into the repository.
+
+1. **Turso** (database): create a database (region near Singapore) and a read & write token.
+   Seed it **once**: put `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in `backend/.env`, run
+   `npm run seed -- --production`, then **remove both lines** from your `.env` again.
+2. **Render** (backend): New → Web Service → this repository. Root directory `backend`,
+   build `npm install`, start `npm start`. Environment:
+   `JWT_SECRET` (a NEW random value: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`),
+   `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
+   `CORS_ORIGINS=https://newtsbrightside.github.io`. Open `https://<service>.onrender.com/api/health`:
+   it must say `"database": "turso"`.
+3. **Web app** (GitHub Pages): repository → Settings → Secrets and variables → Actions →
+   Variables → `VITE_API_URL` = the Render URL. Then Actions → "Deploy Vite app to GitHub Pages" →
+   Run workflow (the URL is built in, so every change needs a new build).
+4. **Phone**: `mobile-app/.env` → `EXPO_PUBLIC_API_URL=https://<service>.onrender.com`, restart
+   `npx expo start`, open in Expo Go on an iPhone and an Android phone, Wi-Fi off.
+5. **Five checks**: the API answers; `/api/shoes` returns the seeded shoes; the web app's Network
+   tab shows `…onrender.com`; the phone logs in on mobile data; create an order → Render →
+   Restart service → the order is still there.
+
+New column in production later? Add an `ensureColumn(...)` line in `backend/database.js` — it runs
+`ALTER TABLE … ADD COLUMN` on start and keeps every row. Never run `npm run seed` on production again.
+
+Free Render servers sleep after 15 minutes; open `/api/health` a few minutes before a demo.
+
+---
+
+## 📄 Course
+
+Developed for **Web & Mobile Application Development**, Universitas Pelita Harapan (2026).

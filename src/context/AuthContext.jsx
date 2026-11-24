@@ -1,16 +1,36 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { users as initialUsers } from '../data/data';
-import { api } from '../api/api';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { users as offlineUsers } from '../data/data';
+import { api, API_ENABLED, getToken, setToken } from '../api/api';
 
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
+const USER_KEY = 'finish_line_user';
+
+// Offline demo only (a build without VITE_API_URL): fake accounts from data.js.
+// With an API, every login is checked by the server.
+const offlineLogin = (username, password) => {
+  const found = offlineUsers.find(
+    u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password
+  );
+  if (!found) return null;
+  return {
+    id: found.role === 'administrator' ? 1 : 2,
+    username: found.username,
+    role: found.role,
+    wallet_balance: found.role === 'client' ? 500 : 0,
+    left_size: null,
+    right_size: null
+  };
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
     try {
-      const savedUser = localStorage.getItem('finish_line_user');
-      return savedUser ? JSON.parse(savedUser) : null;
+      const saved = JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+      // With an API, a saved user without a token is not logged in.
+      return saved && (!API_ENABLED || getToken()) ? saved : null;
     } catch {
       return null;
     }
@@ -18,131 +38,89 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Sync role to localStorage whenever user changes
+  // The user object is not a secret (the token is), so it may live in localStorage.
   useEffect(() => {
-    if (user) {
-      localStorage.setItem('finish_line_role', user.role);
-      localStorage.setItem('finish_line_user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('finish_line_role');
-      localStorage.removeItem('finish_line_user');
-      localStorage.removeItem('finish_line_token');
-    }
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_KEY);
   }, [user]);
+
+  const logout = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    setError('');
+    localStorage.removeItem('finish_line_role');
+  }, []);
+
+  // Any request that answers 401 fires this event (see api.js).
+  useEffect(() => {
+    const onExpired = () => {
+      logout();
+      setError('Your session has expired. Please log in again.');
+    };
+    window.addEventListener('finishline:session-expired', onExpired);
+    return () => window.removeEventListener('finishline:session-expired', onExpired);
+  }, [logout]);
+
+  // On page load, refresh the saved user from the server (an expired token logs out here).
+  useEffect(() => {
+    if (API_ENABLED && getToken()) {
+      api.getMe().then(({ user: fresh }) => setUser(fresh)).catch(() => {});
+    }
+  }, []);
+
+  const startSession = (token, newUser) => {
+    setToken(token);
+    setUser(newUser);
+  };
 
   const login = async (username, password) => {
     setError('');
     setLoading(true);
-
     try {
-      // 1. Attempt login via Backend API
-      const response = await api.login(username, password);
-      if (response && response.token && response.user) {
-        localStorage.setItem('finish_line_token', response.token);
-        setUser(response.user);
-        setLoading(false);
+      if (!API_ENABLED) {
+        const offline = offlineLogin(username, password);
+        if (!offline) throw Object.assign(new Error('Invalid username or password'), { status: 401 });
+        setUser(offline);
         return true;
       }
-    } catch (apiError) {
-      // If server specifically returned 401 invalid credentials, report it
-      if (apiError.status === 401) {
-        setError('Invalid username or password');
-        setLoading(false);
-        return false;
-      }
-      console.warn('Backend login unavailable, attempting local fallback:', apiError.message);
-    }
-
-    // 2. Fallback to localStorage / hardcoded accounts when backend is unreachable
-    let allUsers = [...initialUsers];
-    try {
-      const registered = JSON.parse(localStorage.getItem('finish_line_registered_users') || '[]');
-      if (Array.isArray(registered)) {
-        allUsers = [...allUsers, ...registered];
-      }
-    } catch {
-      // ignore JSON parse errors
-    }
-
-    const foundUser = allUsers.find(
-      u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password
-    );
-
-    if (foundUser) {
-      const fallbackUser = {
-        id: foundUser.id || (foundUser.role === 'administrator' ? 1 : 2),
-        username: foundUser.username,
-        role: foundUser.role,
-        wallet_balance: foundUser.wallet_balance !== undefined ? foundUser.wallet_balance : (foundUser.role === 'client' ? 500 : 0)
-      };
-      setUser(fallbackUser);
-      setLoading(false);
+      const response = await api.login(username, password);
+      startSession(response.token, response.user);
       return true;
+    } catch (err) {
+      setError(err.status === 401 ? 'Invalid username or password' : err.message);
+      return false;
+    } finally {
+      setLoading(false);
     }
-
-    setError('Invalid username or password');
-    setLoading(false);
-    return false;
   };
 
   const register = async (username, password) => {
     setError('');
     setLoading(true);
-
     try {
       const response = await api.register(username, password);
-      if (response && response.token && response.user) {
-        localStorage.setItem('finish_line_token', response.token);
-        setUser(response.user);
-        setLoading(false);
-        return true;
-      }
-    } catch (apiError) {
-      if (apiError.status === 409) {
-        setError('Username is already taken');
-        setLoading(false);
-        return false;
-      }
-      console.warn('Backend register unavailable, creating local session:', apiError.message);
+      startSession(response.token, response.user);
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    } finally {
+      setLoading(false);
     }
-
-    // Local fallback for offline / static mode
-    const fallbackUser = {
-      id: Date.now(),
-      username: username.trim(),
-      password,
-      role: 'client',
-      wallet_balance: 500
-    };
-
-    try {
-      const registered = JSON.parse(localStorage.getItem('finish_line_registered_users') || '[]');
-      if (registered.some(u => u.username.toLowerCase() === fallbackUser.username.toLowerCase())) {
-        setError('Username is already taken');
-        setLoading(false);
-        return false;
-      }
-      registered.push(fallbackUser);
-      localStorage.setItem('finish_line_registered_users', JSON.stringify(registered));
-    } catch (e) {
-      console.warn('Could not save user to localStorage:', e);
-    }
-
-    setUser(fallbackUser);
-    setLoading(false);
-    return true;
   };
 
-  const logout = () => {
-    setUser(null);
-    setError('');
-    localStorage.removeItem('finish_line_token');
-    localStorage.removeItem('finish_line_role');
-    localStorage.removeItem('finish_line_user');
+  // Save the size of each foot on the server, so the phone app sees it too.
+  const saveSizes = async (leftSize, rightSize) => {
+    if (!API_ENABLED) {
+      setUser(current => ({ ...current, left_size: leftSize, right_size: rightSize }));
+      return;
+    }
+    const response = await api.saveMySizes(leftSize, rightSize);
+    setUser(response.user);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, error, loading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, saveSizes, error, loading }}>
       {children}
     </AuthContext.Provider>
   );
