@@ -1,259 +1,191 @@
 const express = require('express');
 const db = require('../database');
-const { authenticateToken, optionalAuth, requireAdmin } = require('../middleware/auth');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { parseSizes, isValidSize, sizeLabel } = require('../lib/sizes');
 
 const router = express.Router();
 
-// Helper to format order with items for response
-function formatOrder(orderRow, itemsRows = []) {
-  if (!orderRow) return null;
+const STATUSES = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+const MAX_QUANTITY = 10;
 
-  const items = itemsRows.map(item => ({
-    id: item.shoe_id,
-    shoe_id: item.shoe_id,
-    name: item.name || item.shoe_name,
-    brand: item.brand,
-    image: item.image_url,
-    selectedSize: item.selected_size,
-    quantity: item.quantity,
-    price: item.unit_price,
-    unit_price: item.unit_price
-  }));
+function httpError(status, message) {
+  const err = new Error(message);
+  err.statusCode = status;
+  return err;
+}
+
+function loadItems(orderId) {
+  return db.prepare(`
+    SELECT oi.*, s.name AS current_name, s.brand, s.image_url
+    FROM order_items oi
+    LEFT JOIN shoes s ON oi.shoe_id = s.id
+    WHERE oi.order_id = ?
+  `).all(orderId);
+}
+
+// Shape of an order in every API response.
+function formatOrder(row, itemRows) {
+  const items = itemRows.map(item => {
+    const left = item.left_size == null ? null : Number(item.left_size);
+    const right = item.right_size == null ? null : Number(item.right_size);
+    return {
+      id: item.shoe_id,
+      shoe_id: item.shoe_id,
+      name: item.shoe_name || item.current_name || 'Removed shoe',
+      brand: item.brand || 'Finish Line',
+      image: item.image_url || null,
+      left_size: left,
+      right_size: right,
+      split_size: left !== null && right !== null && left !== right,
+      selectedSize: item.selected_size, // e.g. "9" or "L 9 / R 9.5"
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unit_price),
+      price: Number(item.unit_price)
+    };
+  });
 
   return {
-    id: orderRow.id,
-    user_id: orderRow.user_id,
-    customer_name: orderRow.customer_name,
-    delivery_address: orderRow.delivery_address,
-    customer: {
-      name: orderRow.customer_name,
-      address: orderRow.delivery_address
-    },
-    total: Number(orderRow.total_amount),
-    total_amount: Number(orderRow.total_amount),
-    status: orderRow.status,
-    created_at: orderRow.created_at,
-    date: orderRow.created_at,
+    id: row.id,
+    user_id: row.user_id,
+    customer_name: row.customer_name,
+    delivery_address: row.delivery_address,
+    customer: { name: row.customer_name, address: row.delivery_address },
+    total: Number(row.total_amount),
+    total_amount: Number(row.total_amount),
+    status: row.status,
+    created_at: row.created_at,
+    date: row.created_at,
     items
   };
 }
 
-// POST /api/orders - Client places an order (decrements stock in transaction)
-router.post('/', optionalAuth, (req, res) => {
-  const { customer, customer_name, delivery_address, items, total, total_amount } = req.body;
+function newOrderId() {
+  for (;;) {
+    const id = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+    if (!db.prepare('SELECT id FROM orders WHERE id = ?').get(id)) return id;
+  }
+}
 
-  const resolvedCustomerName = (customer && customer.name) || customer_name;
-  const resolvedAddress = (customer && customer.address) || delivery_address || 'Standard Delivery';
+// Works out the size for each foot of one order line, and checks the shoe has them.
+// The item can send one size ({ selectedSize: 9 }) or one per foot ({ left_size: 9, right_size: 9.5 }).
+function resolveSizes(item, shoe) {
+  const single = item.selectedSize ?? item.selected_size ?? item.size;
+  const left = Number(item.left_size ?? single);
+  const right = Number(item.right_size ?? single);
 
-  if (!resolvedCustomerName) {
-    return res.status(400).json({ error: 'Customer name is required to place an order.' });
+  if (!isValidSize(left) || !isValidSize(right)) {
+    throw httpError(400, `Choose a size for ${shoe.name}.`);
   }
 
+  const available = parseSizes(shoe.sizes);
+  for (const [foot, size] of [['left', left], ['right', right]]) {
+    if (!available.includes(size)) {
+      throw httpError(400, `Size ${size} (${foot} foot) is not available for ${shoe.name}. Available: ${available.join(', ')}.`);
+    }
+  }
+  return { left, right };
+}
+
+// POST /api/orders — a logged-in user places an order.
+// The server reads prices and stock from the database; prices sent by the app are ignored.
+router.post('/', authenticateToken, (req, res) => {
+  const { customer, customer_name, delivery_address, items } = req.body;
+  const name = String((customer && customer.name) || customer_name || '').trim();
+  const address = String((customer && customer.address) || delivery_address || '').trim();
+
+  if (!name || !address) {
+    return res.status(400).json({ error: 'Name and delivery address are required.' });
+  }
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Order must contain at least one item.' });
   }
 
-  const userId = req.user ? req.user.id : null;
-  const orderId = req.body.id || `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-
   try {
-    const placeOrderTransaction = db.transaction(() => {
-      let calculatedTotal = 0;
-      const verifiedItems = [];
+    const placeOrder = db.transaction(() => {
+      const orderId = newOrderId();
+      const now = new Date().toISOString();
+      const lines = [];
+      let total = 0;
 
-      // 1. Verify stock and calculate total
       for (const item of items) {
-        const shoeId = item.id || item.shoe_id;
-        const quantity = Math.max(1, Number(item.quantity) || 1);
-        const selectedSize = item.selectedSize || item.selected_size || item.size || 'Standard';
+        const shoeId = String(item.id || item.shoe_id || '');
+        const shoe = db.prepare('SELECT id, name, price, stock, sizes FROM shoes WHERE id = ?').get(shoeId);
+        if (!shoe) throw httpError(404, `Shoe '${shoeId}' is not in the catalogue.`);
 
-        const shoe = db.prepare('SELECT id, name, price, stock, image_url, brand FROM shoes WHERE id = ?').get(shoeId);
-        if (!shoe) {
-          throw new Error(`Shoe with ID '${shoeId}' not found in catalogue.`);
+        const quantity = Math.floor(Number(item.quantity) || 1);
+        if (quantity < 1 || quantity > MAX_QUANTITY) {
+          throw httpError(400, `Quantity must be between 1 and ${MAX_QUANTITY}.`);
         }
 
-        if (shoe.stock < quantity) {
-          const err = new Error(`Insufficient stock for '${shoe.name}'. Available: ${shoe.stock}, requested: ${quantity}.`);
-          err.statusCode = 409;
-          throw err;
+        const { left, right } = resolveSizes(item, shoe);
+
+        // Take the stock only if there is enough left. One pair = one unit, even with two sizes.
+        const taken = db.prepare('UPDATE shoes SET stock = stock - ? WHERE id = ? AND stock >= ?')
+          .run(quantity, shoe.id, quantity);
+        if (taken.changes !== 1) {
+          throw httpError(409, `Not enough stock for ${shoe.name}. Available: ${shoe.stock}.`);
         }
 
-        calculatedTotal += Number(shoe.price) * quantity;
-        verifiedItems.push({
-          shoeId: shoe.id,
-          name: shoe.name,
-          brand: shoe.brand,
-          image_url: shoe.image_url,
-          selectedSize,
-          quantity,
-          unitPrice: Number(shoe.price)
-        });
+        total += Number(shoe.price) * quantity;
+        lines.push({ shoe, quantity, left, right });
       }
 
-      const finalTotal = total || total_amount ? Number(total || total_amount) : calculatedTotal;
-      const now = new Date().toISOString();
-
-      // 2. Insert into orders table
       db.prepare(`
         INSERT INTO orders (id, user_id, customer_name, delivery_address, total_amount, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(orderId, userId, resolvedCustomerName, resolvedAddress, finalTotal, 'Pending', now);
+        VALUES (?, ?, ?, ?, ?, 'Pending', ?)
+      `).run(orderId, req.user.id, name, address, total, now);
 
-      // 3. Insert items and decrement stock
       const insertItem = db.prepare(`
-        INSERT INTO order_items (order_id, shoe_id, selected_size, quantity, unit_price)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO order_items (order_id, shoe_id, shoe_name, selected_size, left_size, right_size, quantity, unit_price)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      const decrementStock = db.prepare(`
-        UPDATE shoes SET stock = stock - ? WHERE id = ?
-      `);
-
-      for (const item of verifiedItems) {
-        insertItem.run(orderId, item.shoeId, item.selectedSize, item.quantity, item.unitPrice);
-        decrementStock.run(item.quantity, item.shoeId);
+      for (const line of lines) {
+        insertItem.run(
+          orderId, line.shoe.id, line.shoe.name, sizeLabel(line.left, line.right),
+          line.left, line.right, line.quantity, Number(line.shoe.price)
+        );
       }
 
-      return {
-        id: orderId,
-        user_id: userId,
-        customer_name: resolvedCustomerName,
-        delivery_address: resolvedAddress,
-        total_amount: finalTotal,
-        status: 'Pending',
-        created_at: now,
-        items: verifiedItems.map(v => ({
-          shoe_id: v.shoeId,
-          name: v.name,
-          brand: v.brand,
-          image_url: v.image_url,
-          selected_size: v.selectedSize,
-          quantity: v.quantity,
-          unit_price: v.unitPrice
-        }))
-      };
+      return orderId;
     });
 
-    const createdOrder = placeOrderTransaction();
-    return res.status(201).json(formatOrder(createdOrder, createdOrder.items));
+    const orderId = placeOrder();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    return res.status(201).json(formatOrder(order, loadItems(orderId)));
   } catch (err) {
-    console.error('Order placement error:', err.message);
-    const statusCode = err.statusCode || 400;
-    return res.status(statusCode).json({ error: err.message || 'Failed to place order.' });
+    if (!err.statusCode) console.error('Order placement error:', err);
+    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to place order.' });
   }
 });
 
-// GET /api/orders/mine - Client gets own order history
+// GET /api/orders/mine — the logged-in user's orders only.
+// The user id comes from the token, so nobody can ask for someone else's orders.
 router.get('/mine', authenticateToken, (req, res) => {
-  try {
-    const orders = db.prepare(`
-      SELECT * FROM orders
-      WHERE user_id = ? OR LOWER(customer_name) = LOWER(?)
-      ORDER BY created_at DESC
-    `).all(req.user.id, req.user.username);
-
-    const fullOrders = orders.map(order => {
-      const items = db.prepare(`
-        SELECT oi.*, s.name, s.brand, s.image_url
-        FROM order_items oi
-        LEFT JOIN shoes s ON oi.shoe_id = s.id
-        WHERE oi.order_id = ?
-      `).all(order.id);
-      return formatOrder(order, items);
-    });
-
-    return res.json(fullOrders);
-  } catch (err) {
-    console.error('Fetch my orders error:', err);
-    return res.status(500).json({ error: 'Failed to retrieve order history.' });
-  }
+  const orders = db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
+  return res.json(orders.map(order => formatOrder(order, loadItems(order.id))));
 });
 
-// GET /api/orders - Admin gets all orders
-router.get('/', requireAdmin, (req, res) => {
-  try {
-    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
-
-    const fullOrders = orders.map(order => {
-      const items = db.prepare(`
-        SELECT oi.*, s.name, s.brand, s.image_url
-        FROM order_items oi
-        LEFT JOIN shoes s ON oi.shoe_id = s.id
-        WHERE oi.order_id = ?
-      `).all(order.id);
-      return formatOrder(order, items);
-    });
-
-    return res.json(fullOrders);
-  } catch (err) {
-    console.error('Fetch orders error:', err);
-    return res.status(500).json({ error: 'Failed to retrieve orders.' });
-  }
+// GET /api/orders — administrators see every order
+router.get('/', requireAdmin, (_req, res) => {
+  const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+  return res.json(orders.map(order => formatOrder(order, loadItems(order.id))));
 });
 
-// PUT /api/orders/:id/status - Admin updates order status
+// PUT /api/orders/:id/status — administrators move an order along
 router.put('/:id/status', requireAdmin, (req, res) => {
-  const { id } = req.params;
   const { status } = req.body;
-
-  const validStatuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-  if (!status || !validStatuses.includes(status)) {
-    return res.status(400).json({
-      error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
-    });
+  if (!STATUSES.includes(status)) {
+    return res.status(400).json({ error: `Invalid status. Must be one of: ${STATUSES.join(', ')}` });
   }
 
-  try {
-    const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Order not found.' });
-    }
-
-    db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
-
-    const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    const items = db.prepare(`
-      SELECT oi.*, s.name, s.brand, s.image_url
-      FROM order_items oi
-      LEFT JOIN shoes s ON oi.shoe_id = s.id
-      WHERE oi.order_id = ?
-    `).all(id);
-
-    return res.json(formatOrder(updated, items));
-  } catch (err) {
-    console.error('Update order status error:', err);
-    return res.status(500).json({ error: 'Failed to update order status.' });
-  }
-});
-
-// Alias for PUT /api/orders/:id (allows updating status directly via /api/orders/:id)
-router.put('/:id', requireAdmin, (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  if (status) {
-    const validStatuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
-      });
-    }
-
-    db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
-  }
-
-  const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-  if (!updated) {
+  const existing = db.prepare('SELECT id FROM orders WHERE id = ?').get(req.params.id);
+  if (!existing) {
     return res.status(404).json({ error: 'Order not found.' });
   }
 
-  const items = db.prepare(`
-    SELECT oi.*, s.name, s.brand, s.image_url
-    FROM order_items oi
-    LEFT JOIN shoes s ON oi.shoe_id = s.id
-    WHERE oi.order_id = ?
-  `).all(id);
-
-  return res.json(formatOrder(updated, items));
+  db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  return res.json(formatOrder(order, loadItems(req.params.id)));
 });
 
 module.exports = router;

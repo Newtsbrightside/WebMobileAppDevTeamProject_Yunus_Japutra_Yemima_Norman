@@ -1,19 +1,44 @@
-const Database = require('better-sqlite3');
-const bcrypt = require('bcryptjs');
+// Opens the database and makes sure every table and column exists.
+//
+// - On your laptop: a local SQLite file (backend/finishline.db).
+// - In production (Render): the hosted Turso database, chosen by setting
+//   TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in Render → Environment.
+//
+// The `libsql` package has the same API as better-sqlite3, so the routes did not change.
+// Starting the server NEVER deletes rows. Sample data comes only from `npm run seed`.
 const path = require('path');
-const dotenv = require('dotenv');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+const Database = require('libsql');
 
-dotenv.config();
+const tursoUrl = process.env.TURSO_DATABASE_URL;
+const isTurso = Boolean(tursoUrl);
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'finishline.db');
-const db = new Database(dbPath);
+const db = isTurso
+  ? new Database(tursoUrl, { authToken: process.env.TURSO_AUTH_TOKEN })
+  : new Database(process.env.DB_PATH || path.join(__dirname, 'finishline.db'));
 
-// Enable foreign keys and WAL mode for reliability and performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+db.location = isTurso ? 'turso' : 'local-file';
 
-function initDatabase() {
-  // 1. Users table
+if (!isTurso) {
+  db.exec('PRAGMA journal_mode = WAL');
+}
+try {
+  db.exec('PRAGMA foreign_keys = ON');
+} catch (err) {
+  console.warn('Could not enable foreign keys:', err.message);
+}
+
+// Adds a column to a table that already exists, keeping every row.
+// This is how a new column reaches a database that already holds real data.
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some(existing => existing.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`Added column ${table}.${column}`);
+  }
+}
+
+function createTables() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +49,6 @@ function initDatabase() {
     );
   `);
 
-  // 2. Shoes table
   db.exec(`
     CREATE TABLE IF NOT EXISTS shoes (
       id TEXT PRIMARY KEY,
@@ -39,7 +63,6 @@ function initDatabase() {
     );
   `);
 
-  // 3. Orders table
   db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
@@ -53,7 +76,6 @@ function initDatabase() {
     );
   `);
 
-  // 4. Order items table
   db.exec(`
     CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +89,6 @@ function initDatabase() {
     );
   `);
 
-  // 5. Messages table
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,111 +98,25 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
-
-  seedData();
 }
 
-function seedData() {
-  // Seed initial users if table is empty
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-  if (userCount === 0) {
-    const insertUser = db.prepare(`
-      INSERT INTO users (username, password_hash, role, wallet_balance)
-      VALUES (?, ?, ?, ?)
-    `);
+// Week 13 changes. Each line is safe to run again: it only adds what is missing.
+function migrate() {
+  // A customer can save a different size for each foot.
+  ensureColumn('users', 'left_size', 'REAL');
+  ensureColumn('users', 'right_size', 'REAL');
+  // An order line can have a different size for each foot.
+  ensureColumn('order_items', 'left_size', 'REAL');
+  ensureColumn('order_items', 'right_size', 'REAL');
+  // Keep the shoe's name on the order, so old orders still read well if a shoe is deleted.
+  ensureColumn('order_items', 'shoe_name', 'TEXT');
 
-    const saltRounds = 10;
-    const adminHash = bcrypt.hashSync('password', saltRounds);
-    const clientHash = bcrypt.hashSync('password', saltRounds);
-
-    insertUser.run('admin', adminHash, 'administrator', 0.0);
-    insertUser.run('client', clientHash, 'client', 500.0);
-  }
-
-  // Seed initial shoes if table is empty
-  const shoeCount = db.prepare('SELECT COUNT(*) as count FROM shoes').get().count;
-  if (shoeCount === 0) {
-    const insertShoe = db.prepare(`
-      INSERT INTO shoes (id, name, brand, price, category, stock, image_url, description, sizes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const initialShoes = [
-      {
-        id: 's1',
-        name: 'AeroGlide Pro Runner',
-        brand: 'Finish Line',
-        price: 150.00,
-        category: 'Running',
-        stock: 24,
-        image_url: '/assets/images/aeroglide.jpg',
-        description: 'Ultra-lightweight mesh and responsive foam make this the ultimate racing shoe.',
-        sizes: JSON.stringify([8, 9, 10, 11, 12])
-      },
-      {
-        id: 's2',
-        name: 'Classic Court Leather',
-        brand: 'Finish Line',
-        price: 110.00,
-        category: 'Casual',
-        stock: 45,
-        image_url: '/assets/images/classic-court.jpg',
-        description: 'Premium white leather and classic styling for everyday comfort.',
-        sizes: JSON.stringify([7, 8, 9, 10, 11, 12])
-      },
-      {
-        id: 's3',
-        name: 'Elevate High-Top X',
-        brand: 'Finish Line',
-        price: 185.00,
-        category: 'Basketball',
-        stock: 12,
-        image_url: '/assets/images/elevate-high-top.jpg',
-        description: 'Ankle support and high-grip rubber for explosive court performance.',
-        sizes: JSON.stringify([9, 10, 10.5, 11, 11.5, 12, 13])
-      },
-      {
-        id: 's4',
-        name: 'Urban Suede Retro',
-        brand: 'Finish Line',
-        price: 130.00,
-        category: 'Lifestyle',
-        stock: 30,
-        image_url: '/assets/images/urban-suede.jpg',
-        description: 'Navy blue suede with a chunky retro sole for maximum style.',
-        sizes: JSON.stringify([8, 8.5, 9, 9.5, 10, 11])
-      }
-    ];
-
-    const seedTransaction = db.transaction((shoes) => {
-      for (const shoe of shoes) {
-        insertShoe.run(
-          shoe.id,
-          shoe.name,
-          shoe.brand,
-          shoe.price,
-          shoe.category,
-          shoe.stock,
-          shoe.image_url,
-          shoe.description,
-          shoe.sizes
-        );
-      }
-    });
-
-    seedTransaction(initialShoes);
-  }
-
-  // Seed initial support message if empty
-  const msgCount = db.prepare('SELECT COUNT(*) as count FROM messages').get().count;
-  if (msgCount === 0) {
-    db.prepare(`
-      INSERT INTO messages (sender_role, sender_name, text, created_at)
-      VALUES (?, ?, ?, ?)
-    `).run('admin', 'Finishline Team', 'Welcome to Finishline support. How can we help?', new Date().toISOString());
-  }
+  // Week 10 seed rows pointed at /assets/images/, a folder the server never had.
+  // The pictures are served from /images/ now (backend/public/images).
+  db.exec("UPDATE shoes SET image_url = REPLACE(image_url, '/assets/images/', '/images/') WHERE image_url LIKE '/assets/images/%'");
 }
 
-initDatabase();
+createTables();
+migrate();
 
 module.exports = db;

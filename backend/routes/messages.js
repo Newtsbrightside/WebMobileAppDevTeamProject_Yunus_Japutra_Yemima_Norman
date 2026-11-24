@@ -1,15 +1,14 @@
 const express = require('express');
 const db = require('../database');
-const { optionalAuth } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
 function formatMessage(row) {
-  if (!row) return null;
   return {
     id: row.id,
     sender_role: row.sender_role,
-    sender: row.sender_role, // Compatibility with frontend state
+    sender: row.sender_role, // the web app reads `sender`
     sender_name: row.sender_name,
     text: row.text,
     time: row.created_at,
@@ -17,57 +16,31 @@ function formatMessage(row) {
   };
 }
 
-// GET /api/messages - Fetch full chat history
-router.get('/', (_req, res) => {
-  try {
-    const rows = db.prepare('SELECT * FROM messages ORDER BY created_at ASC, id ASC').all();
-    return res.json(rows.map(formatMessage));
-  } catch (err) {
-    console.error('Fetch messages error:', err);
-    return res.status(500).json({ error: 'Failed to retrieve messages.' });
-  }
+// GET /api/messages — support chat history (logged-in users only)
+router.get('/', authenticateToken, (_req, res) => {
+  const rows = db.prepare('SELECT * FROM messages ORDER BY created_at ASC, id ASC').all();
+  return res.json(rows.map(formatMessage));
 });
 
-// POST /api/messages - Send a new support message
-router.post('/', optionalAuth, (req, res) => {
-  const { sender_role, sender, sender_name, text } = req.body;
-
-  if (!text || !text.trim()) {
+// POST /api/messages — send a support message.
+// Who sent it comes from the token, so a client cannot post as "Finishline Team".
+router.post('/', authenticateToken, (req, res) => {
+  const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
+  if (!text) {
     return res.status(400).json({ error: 'Message text cannot be empty.' });
   }
-
-  // Resolve role from body or authenticated user
-  let role = sender_role || sender;
-  if (!role && req.user) {
-    role = req.user.role === 'administrator' || req.user.role === 'admin' ? 'admin' : 'client';
-  }
-  if (!role) {
-    role = 'client';
+  if (text.length > 1000) {
+    return res.status(400).json({ error: 'Messages can be at most 1000 characters.' });
   }
 
-  // Resolve name
-  let name = sender_name;
-  if (!name && req.user) {
-    name = req.user.username;
-  }
-  if (!name) {
-    name = role === 'admin' ? 'Finishline Team' : 'Shopper';
-  }
+  const isAdmin = req.user.role === 'administrator';
+  const result = db.prepare(`
+    INSERT INTO messages (sender_role, sender_name, text, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(isAdmin ? 'admin' : 'client', isAdmin ? 'Finishline Team' : req.user.username, text, new Date().toISOString());
 
-  const now = new Date().toISOString();
-
-  try {
-    const result = db.prepare(`
-      INSERT INTO messages (sender_role, sender_name, text, created_at)
-      VALUES (?, ?, ?, ?)
-    `).run(role, name, text.trim(), now);
-
-    const created = db.prepare('SELECT * FROM messages WHERE id = ?').get(result.lastInsertRowid);
-    return res.status(201).json(formatMessage(created));
-  } catch (err) {
-    console.error('Create message error:', err);
-    return res.status(500).json({ error: 'Failed to send message.' });
-  }
+  const created = db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(result.lastInsertRowid));
+  return res.status(201).json(formatMessage(created));
 });
 
 module.exports = router;

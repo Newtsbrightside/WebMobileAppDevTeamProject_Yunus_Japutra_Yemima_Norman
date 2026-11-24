@@ -5,10 +5,11 @@ import { ArrowRight, LockKeyhole, Sparkles } from 'lucide-react';
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { login, error } = useAuth();
+  const { login, error, loading } = useAuth();
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (loading) return;
     login(username, password);
   };
 
@@ -51,8 +52,8 @@ const Login = () => {
               required 
             />
           </div>
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-            Enter Finishline <ArrowRight size={18} />
+          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} disabled={loading}>
+            {loading ? 'Signing in… (a sleeping server can take a minute)' : <>Enter Finishline <ArrowRight size={18} /></>}
           </button>
         </form>
 

@@ -33,6 +33,11 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # The deployed backend's address, built into the site by Vite.
+          # Set it in Settings → Secrets and variables → Actions → Variables (not a secret).
+          # Without it, the site builds in offline demo mode.
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
